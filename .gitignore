@@ -1,0 +1,36 @@
+# Secrets
+.env
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.ruff_cache/
+.pytest_cache/
+
+# Scratch / backups
+*.bak
+*.yaml.bak
+.tmp_*
+
+# Transient per-client artifacts (regenerable, not source of truth)
+clients/*/.cost-log.jsonl
+clients/*/.drive_cache/
+clients/*/remixes/
+
+# Large binaries (not source of truth)
+ai-ads/
+output/
+clients/*/reference_ads/raw/
+
+# Raw scraped research (social comments, competitor reviews). Contains
+# third-party usernames/PII — never ship it. Regenerable via the research
+# commands; the synthesized competitive-gaps.yaml is what downstream uses.
+clients/*/research/competitor-reviews/
+clients/*/research/instagram-comments/
+clients/*/research/tiktok-comments/
+clients/*/research/youtube-comments/
+clients/*/research/exa/raw/
