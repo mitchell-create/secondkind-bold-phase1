@@ -56,47 +56,47 @@ SecondKind sells **Gut Balance**, a daily **postbiotic** supplement. The whole p
 Open every piece with one of these (or a new line in the exact same register), then run the four-beat arc.
 
 ### Done-Everything Danielle — *full confessional register; body OK when blame lands on the product; never imply she was careless — she did everything right*
-- You have finished the whole bottle. You took it every morning. You did not forget a single day. And your gut is exactly the same as when you started. You just haven't told anyone because it's embarrassing to admit you spent fifty dollars on nothing again.
-- You eat cleaner than most people you know. You work out. You read the labels. And by dinner you look three months pregnant. The math stopped making sense years ago and you've quietly accepted it as just how your body works — which is not acceptance, it's defeat.
-- You know which bathrooms on your commute are worth using in an emergency. You have a mental map. You do not talk about this.
-- The reason you haven't told your doctor isn't that you're embarrassed. It's that you already know what they'll say — "your labs look fine" — and you don't have the energy for another dead end delivered with a smile.
-- You didn't realize you had brain fog until a random Tuesday when it lifted, and you sat there thinking: wait — is this what other people feel like all the time? And then it came back.
-- You said "I know, I know, another supplement" out loud to yourself in the checkout cart. And you bought it anyway. Because somewhere you still believe the right one exists. That hope is not a character flaw. It's the correct read — you just had the wrong product.
+- **Hook 001:** You have finished the whole bottle. You took it every morning. You did not forget a single day. And your gut is exactly the same as when you started. You just haven't told anyone because it's embarrassing to admit you spent fifty dollars on nothing again.
+- **Hook 002:** You eat cleaner than most people you know. You work out. You read the labels. And by dinner you look three months pregnant. The math stopped making sense years ago and you've quietly accepted it as just how your body works — which is not acceptance, it's defeat.
+- **Hook 003:** You know which bathrooms on your commute are worth using in an emergency. You have a mental map. You do not talk about this.
+- **Hook 004:** The reason you haven't told your doctor isn't that you're embarrassed. It's that you already know what they'll say — "your labs look fine" — and you don't have the energy for another dead end delivered with a smile.
+- **Hook 005:** You didn't realize you had brain fog until a random Tuesday when it lifted, and you sat there thinking: wait — is this what other people feel like all the time? And then it came back.
+- **Hook 006:** You said "I know, I know, another supplement" out loud to yourself in the checkout cart. And you bought it anyway. Because somewhere you still believe the right one exists. That hope is not a character flaw. It's the correct read — you just had the wrong product.
 
 ### Immune-Anxious Isaac — *constrained register: performance/data-framed; NO body or aesthetic language; name the sick week, the 2pm wall, the HRV data*
-- You have been sick at the end of Q4 three years in a row. Not bad luck. A pattern. You've optimized your sleep, your stress protocols, your supplement stack — and your immune system still switches off on the exact week you can't afford it to.
-- You're already taking a probiotic. A good one. Refrigerated. Multi-strain. You've taken it for over a year and you can't point to a single measurable change in HRV, digestion logs, or how you felt during cold season. You haven't said this out loud because the implication is uncomfortable.
-- The 2pm wall is not a caffeine problem. You've tried fixing the caffeine. You've tried fixing the sleep. The wall is still there. You've accepted a 30% productivity haircut every afternoon and called it your baseline.
-- Your supplement stack is eight to twelve capsules. You resent at least three of them. You keep taking them because removing something and feeling worse would be worse than the cost of keeping it. This is not optimization. This is hostage-taking.
-- You consider yourself well-informed on gut science — the Huberman episodes, the Peter Attia posts. And you hadn't heard of postbiotics until recently, which means you've been supplementing the delivery vehicle for years while the active compounds never showed up. That's not a personal failure. That's a category that never told you the truth.
+- **Hook 007:** You have been sick at the end of Q4 three years in a row. Not bad luck. A pattern. You've optimized your sleep, your stress protocols, your supplement stack — and your immune system still switches off on the exact week you can't afford it to.
+- **Hook 008:** You're already taking a probiotic. A good one. Refrigerated. Multi-strain. You've taken it for over a year and you can't point to a single measurable change in HRV, digestion logs, or how you felt during cold season. You haven't said this out loud because the implication is uncomfortable.
+- **Hook 009:** The 2pm wall is not a caffeine problem. You've tried fixing the caffeine. You've tried fixing the sleep. The wall is still there. You've accepted a 30% productivity haircut every afternoon and called it your baseline.
+- **Hook 010:** Your supplement stack is eight to twelve capsules. You resent at least three of them. You keep taking them because removing something and feeling worse would be worse than the cost of keeping it. This is not optimization. This is hostage-taking.
+- **Hook 011:** You consider yourself well-informed on gut science — the Huberman episodes, the Peter Attia posts. And you hadn't heard of postbiotics until recently, which means you've been supplementing the delivery vehicle for years while the active compounds never showed up. That's not a personal failure. That's a category that never told you the truth.
 
 ### New-Normal New Mom Natalie — *emotional + safety-first; BODY IS SACRED GROUND: never reference weight, shape, or appearance — function only (regular, calm, clear, like herself)*
-- Everyone told you the fog and the gut stuff would resolve once you got more sleep. You're getting more sleep now. It didn't resolve. You've quietly accepted that something shifted during pregnancy that sleep alone isn't going to fix — and you're not sure anyone's going to tell you that without you asking.
-- You have a list of things you won't put in your body right now. It's not anxiety, it's due diligence. You read every ingredient panel. You've walked away from supplements everyone swore by because the label didn't pass. You're not being difficult. You're being correct.
-- You used to know what your gut was going to do. Before. Now you have no idea what any given day holds. You describe it as "my body just hasn't gone back to normal." But it is a medical problem.
-- You miss feeling like yourself. Not thinner. Not pre-baby. Just the version of you that could think clearly, digest normally, and move through a day without managing symptoms. That version isn't gone — she just has the wrong tools.
-- You've taken probiotics postpartum because every list said to. You felt nothing change. You kept taking them because stopping felt like giving up. That's not a personal failure. The product was solving for the wrong layer the whole time.
+- **Hook 012:** Everyone told you the fog and the gut stuff would resolve once you got more sleep. You're getting more sleep now. It didn't resolve. You've quietly accepted that something shifted during pregnancy that sleep alone isn't going to fix — and you're not sure anyone's going to tell you that without you asking.
+- **Hook 013:** You have a list of things you won't put in your body right now. It's not anxiety, it's due diligence. You read every ingredient panel. You've walked away from supplements everyone swore by because the label didn't pass. You're not being difficult. You're being correct.
+- **Hook 014:** You used to know what your gut was going to do. Before. Now you have no idea what any given day holds. You describe it as "my body just hasn't gone back to normal." But it is a medical problem.
+- **Hook 015:** You miss feeling like yourself. Not thinner. Not pre-baby. Just the version of you that could think clearly, digest normally, and move through a day without managing symptoms. That version isn't gone — she just has the wrong tools.
+- **Hook 016:** You've taken probiotics postpartum because every list said to. You felt nothing change. You kept taking them because stopping felt like giving up. That's not a personal failure. The product was solving for the wrong layer the whole time.
 
 ### Functional-Curious Practitioner Paul — *clinical, peer-to-peer ONLY; no emotional register, no body, no consumer vindication; open on the mechanism gap, close on trial data*
-- You've recommended probiotics to patients for years based on evidence that looked solid at the time. Your patients come back and tell you nothing changed. The honest response is that the delivery model has a viability problem you've been aware of and haven't fully confronted.
-- Every brand in this category now says postbiotic. Most don't mean it — fermented extract, or a probiotic lysate, or a marketing term on a live-culture product that happens to have died. You can tell the difference. Most of your peers can't yet. That gap is closing faster than the category is cleaning itself up.
-- You want to be the practitioner who identified the real mechanism before it went mainstream. That's not vanity — it's how professional authority compounds.
-- When three patients mention the same product unprompted and report real results, that's a signal worth treating as data — even if the brand is early-stage.
+- **Hook 017:** You've recommended probiotics to patients for years based on evidence that looked solid at the time. Your patients come back and tell you nothing changed. The honest response is that the delivery model has a viability problem you've been aware of and haven't fully confronted.
+- **Hook 018:** Every brand in this category now says postbiotic. Most don't mean it — fermented extract, or a probiotic lysate, or a marketing term on a live-culture product that happens to have died. You can tell the difference. Most of your peers can't yet. That gap is closing faster than the category is cleaning itself up.
+- **Hook 019:** You want to be the practitioner who identified the real mechanism before it went mainstream. That's not vanity — it's how professional authority compounds.
+- **Hook 020:** When three patients mention the same product unprompted and report real results, that's a signal worth treating as data — even if the brand is early-stage.
 
 ### Burnout Biohacker Brandon — *full challenger, but mechanism-first and evidence-dense from line one; dry/technical self-deprecation; no hyperbole, no claim he can't verify*
-- You've taken a refrigerated, multi-strain, high-CFU probiotic for over a year. You track HRV. You log digestion. You can't point to a single measurable change. You kept taking it because stopping felt like admitting the category was a lie — and you'd already told too many people it worked.
-- Your stack is your identity as much as your protocol. Cutting something means admitting you were wrong to add it. That's the real reason the dead weight stays — not because you think it's working, because removing it is a confession.
-- You heard the Huberman episode. You nodded along. You did not immediately connect that the probiotic in your fridge was supplementing the delivery vehicle for a compound that was never arriving. You consider yourself early-informed on gut science. That gap is uncomfortable.
-- The honest audit: your digestion is still inconsistent, your afternoon energy still unreliable, your immune system still fails on schedule every winter — despite twelve months of best-in-class inputs. The problem isn't your discipline. You were solving for the wrong variable.
-- You're not looking for another supplement. You're looking for a reason to remove three. The only pitch that works on you now: here's the mechanism that explains why what you have isn't working, here's the study, here's why one thing covers it. Everything else is noise.
+- **Hook 021:** You've taken a refrigerated, multi-strain, high-CFU probiotic for over a year. You track HRV. You log digestion. You can't point to a single measurable change. You kept taking it because stopping felt like admitting the category was a lie — and you'd already told too many people it worked.
+- **Hook 022:** Your stack is your identity as much as your protocol. Cutting something means admitting you were wrong to add it. That's the real reason the dead weight stays — not because you think it's working, because removing it is a confession.
+- **Hook 023:** You heard the Huberman episode. You nodded along. You did not immediately connect that the probiotic in your fridge was supplementing the delivery vehicle for a compound that was never arriving. You consider yourself early-informed on gut science. That gap is uncomfortable.
+- **Hook 024:** The honest audit: your digestion is still inconsistent, your afternoon energy still unreliable, your immune system still fails on schedule every winter — despite twelve months of best-in-class inputs. The problem isn't your discipline. You were solving for the wrong variable.
+- **Hook 025:** You're not looking for another supplement. You're looking for a reason to remove three. The only pitch that works on you now: here's the mechanism that explains why what you have isn't working, here's the study, here's why one thing covers it. Everything else is noise.
 
 ### Perimenopause Paula — *full register, skepticism-forward; mechanism-as-vindication; she checks citations; body OK when blame lands on the product; never frame her problem as aging she should accept*
-- Your doctor has told you your labs are fine. Your labs have been fine for three years while you've felt progressively worse. At some point "fine" stopped being reassuring and started being a door closing in your face.
-- You've spent real money on probiotics — good ones. You researched them. You took them for two years. Your gut is exactly the same. The correct conclusion isn't that you researched wrong. It's that the product could not have worked the way the label claimed, and nobody told you that.
-- You knew something shifted around perimenopause. You didn't know your gut microbiome composition changes significantly in that window — that the environment determining whether a probiotic can even colonize gets disrupted at exactly the point you started taking more of them. Your gynecologist didn't tell you. Your gastroenterologist didn't tell you. You found it in a podcast at 11pm.
-- The bloating is connected to hormones, but fixing your hormones didn't fix your stomach. Which means the gut is its own layer — one your hormone protocol was never designed to address. You suspected this. You couldn't find a product built on that premise.
-- You look three months pregnant by 7pm and you ate a salad. You've said "I ate a salad" out loud to yourself in the mirror. The problem isn't the salad. It's a delivery failure upstream of anything the salad can fix.
-- You're done trying things that might work. You'll only try something where someone shows you exactly why it would work — the mechanism, the study population, the outcome measure. That's not stubbornness. That's the correct response to being sold hope six times and handed nothing.
+- **Hook 026:** Your doctor has told you your labs are fine. Your labs have been fine for three years while you've felt progressively worse. At some point "fine" stopped being reassuring and started being a door closing in your face.
+- **Hook 027:** You've spent real money on probiotics — good ones. You researched them. You took them for two years. Your gut is exactly the same. The correct conclusion isn't that you researched wrong. It's that the product could not have worked the way the label claimed, and nobody told you that.
+- **Hook 028:** You knew something shifted around perimenopause. You didn't know your gut microbiome composition changes significantly in that window — that the environment determining whether a probiotic can even colonize gets disrupted at exactly the point you started taking more of them. Your gynecologist didn't tell you. Your gastroenterologist didn't tell you. You found it in a podcast at 11pm.
+- **Hook 029:** The bloating is connected to hormones, but fixing your hormones didn't fix your stomach. Which means the gut is its own layer — one your hormone protocol was never designed to address. You suspected this. You couldn't find a product built on that premise.
+- **Hook 030:** You look three months pregnant by 7pm and you ate a salad. You've said "I ate a salad" out loud to yourself in the mirror. The problem isn't the salad. It's a delivery failure upstream of anything the salad can fix.
+- **Hook 031:** You're done trying things that might work. You'll only try something where someone shows you exactly why it would work — the mechanism, the study population, the outcome measure. That's not stubbornness. That's the correct response to being sold hope six times and handed nothing.
 
 ---
 
@@ -129,6 +129,86 @@ All sit at **problem-aware** unless noted. Lead with each one's **dominant lever
 4. **Functional-Curious Practitioner Paul** (quaternary, solution-aware) — practitioner/dietitian who recommends to clients. Pain: patients report probiotics did nothing; needs RCT evidence to endorse. **Lead with:** named trials, peer-practitioner proof. **Avoid:** consumer/emotional framing, body language, urgency. Write peer-to-peer.
 5. **Burnout Biohacker Brandon** (a primary in the matrix) — 38–55, optimizer with a 12-capsule stack, cynical about wellness. Pains: years of high-CFU probiotics, zero measurable change, supplement fatigue. **Lead with:** the mechanism + the study, framed as *completion not replacement* ("the active compound you were missing"). **Avoid:** hype words, urgency, anything unverifiable.
 6. **Perimenopause Paula** (secondary) — woman 42–54, perimenopause gut symptoms, told her labs are fine, exhausted skeptic. Pains: bloating ("pregnant by 7pm, ate a salad"), fog, irregularity; probiotics did nothing. **Lead with:** the gut-hormone reframe + cited trials ("literature ahead of practice"). **Avoid:** scarcity, generic social proof, "it's just aging."
+
+---
+
+## THE STRATEGY MATRIX (persona × awareness stage)
+
+Thirty cells: six personas across five awareness stages (unaware, problem-aware, solution-aware, product-aware, most-aware). Each cell names the gap to close and gives a ready example hook. Funnel tags: cold (prospecting), warm (consideration), retargeting (close). Frameworks: pas, pastor, fab, four_cs, slap, aida, bab, quest. Always open from the Unspoken-Truths Bank above, then run the four-beat arc; these example hooks already model that move. Roughly half the personas sit at problem-aware today, so that row plus solution-aware is where most spend should go (see the note at the end).
+
+### Burnout Biohacker Brandon (matrix priority: primary)
+- **Unaware** — gap: he treats his probiotic as a solved baseline; he doesn't know it's a dead-bacteria delivery system rather than a bioactive one.
+  Hook: "You optimized everything. Except the part where ~70% of your probiotic never reached your gut." *(pas · cold)*
+- **Problem-aware** — gap: the failure is structural and universal to the delivery model, not a quality issue with the brand he picked.
+  Hook: "Twelve months of a premium probiotic. Zero change in HRV. Zero change in digestion. You weren't doing it wrong. The product was." *(pastor · cold)*
+- **Solution-aware** — gap: the specific three-compound mechanism (Totipro, EpiCor, Bereum), each with RCT-level evidence. Not a CFU race.
+  Hook: "Here's the math the probiotic industry hopes you don't do. Step 1: ~70% die in transit. Step 2: survivors must colonize, most don't. Step 3: the ones that do must then produce bioactive compounds. Three failure points stacked in series. Postbiotics skip all three." *(fab · cold)*
+- **Product-aware** — gap: BiomeBalance delivers 1 trillion bioactives directly, with no survival or colonization step, and each ingredient is independently studied.
+  Hook: "The trillion-bioactives claim isn't a CFU arms race. CFUs count live bacteria. We count what they were supposed to make: already produced, already stable, already active. One trillion of those. BiomeBalance." *(fab · warm)*
+- **Most-aware** — gap: the 30-day trial removes the risk, and one product replaces several stack line items.
+  Hook: "Your probiotic didn't earn its place in your stack. Give Gut Balance 30 days. It will." *(slap · retargeting)*
+
+### Perimenopause Paula (matrix priority: secondary)
+- **Unaware** — gap: her gut microbiome changes structurally in perimenopause; the bloating isn't only hormonal, it's its own system with its own failure mode.
+  Hook: "Nobody told you that estrogen decline reshapes your gut microbiome. Your bloating isn't just hormonal. It's structural." *(pas · cold)*
+- **Problem-aware** — gap: her probiotics failed for a structural reason, not because her case is uniquely difficult.
+  Hook: "You eat clean. You take the refrigerated probiotic. You still feel bloated by dinner and foggy by ten AM. The problem isn't you. The product was never designed for what your gut is going through right now." *(pastor · cold)*
+- **Solution-aware** — gap: postbiotics are a mechanistically distinct input, not a reformulated probiotic.
+  Hook: "Probiotics send live bacteria and hope they arrive. Postbiotics send what those bacteria were supposed to make: already produced, already stable, already active. Your gut doesn't have to do the work your supplements were supposed to do." *(fab · cold)*
+- **Product-aware** — gap: the ingredients have individual clinical evidence (not a black-box blend), and the trial removes the financial risk she has been burned by.
+  Hook: "The last three supplements that promised to fix this cost you real money and nothing changed. Here's what's different: EpiCor, Bereum, Totipro. Three patented, individually studied compounds. Not a proprietary blend. Not a hope." *(four_cs · warm)*
+- **Most-aware** — gap: the 30-day trial resolves the "what if it disappoints me again" anxiety.
+  Hook: "You've given other products every benefit of the doubt. Give this one 30 days. The difference is what's actually in it." *(slap · retargeting)*
+
+### Done-Everything Danielle (matrix priority: tertiary)
+- **Unaware** — gap: she thinks she just hasn't found the right probiotic yet; no probiotic can deliver what postbiotics deliver directly.
+  Hook: "You eat clean. You still look three months pregnant by seven PM. Stop blaming dinner. The probiotic in your cabinet never reached your gut." *(pas · cold)*
+- **Problem-aware** — gap: the failure is built into the delivery model, not brand-specific.
+  Hook: "You've finished three probiotic bottles. You feel exactly the same as when you started. You weren't doing it wrong. The whole delivery model was." *(pastor · cold)*
+- **Solution-aware** — gap: Gut Balance's three patented compounds have real human-trial data, proving this isn't a rebrand of what failed her.
+  Hook: "Probiotics count live bacteria. We count what they were supposed to make. Totipro. EpiCor. Bereum. Three patented compounds with clinical trials. Not a trend word. A different thing entirely." *(fab · cold)*
+- **Product-aware** — gap: the evidence is publicly verifiable (no doctor sign-off needed), and the trial removes the financial risk.
+  Hook: "Your doctor hasn't mentioned postbiotics yet. That's not because it isn't real. It's because clinical literature moves faster than clinical practice. The trials are published. We're just citing them." *(four_cs · warm)*
+- **Most-aware** — gap: the trial is built for exactly someone with her history of disappointment.
+  Hook: "You've given bad products every benefit of the doubt. Give this one 30 days and the receipts. If it doesn't work, it cost you nothing." *(slap · retargeting)*
+
+### Functional-Curious Practitioner Paul (matrix priority: quaternary; his natural entry point is solution-aware)
+- **Unaware** — gap: the delivery failure is documented in the literature he respects, ahead of mainstream clinical adoption.
+  Hook: "The postbiotic mechanism literature is moving faster than clinical practice. Your probiotic recommendations may be structurally sound and clinically underperforming. Here's the delivery-failure math." *(aida · cold)*
+- **Problem-aware** — gap: the explanation for why his recommendations underperformed is the delivery model, and the fix makes him more authoritative, not less.
+  Hook: "Your patients came back and said the probiotic didn't work. Here's the explanation the category never gave you: the delivery model was broken before it left the bottle." *(pastor · cold)*
+- **Solution-aware** — gap: each compound has standalone clinical evidence, meeting the threshold he needs before recommending.
+  Hook: "Three ingredients. Three separate clinical trials. Totipro: 30-day bowel regularity data. EpiCor: 17% reduction in cold and flu symptom days in a 12-week RCT. Bereum: 84-day improvements in GI symptoms, perceived stress, and quality of life. This is what a formulation with receipts looks like." *(fab · cold)*
+- **Product-aware** — gap: the primary-source trial trail is accessible, so he can defend the recommendation to a skeptical peer.
+  Hook: "You want the actual trials, not the summary. EpiCor: Moyad et al., 12-week double-blind RCT. Bereum: 84-day human clinical, peer-reviewed outcomes. Totipro: 30-day clinical, bowel regularity endpoints. Full citations available. This is a recommendation you can defend." *(four_cs · warm)*
+- **Most-aware** — gap: he needs a clean professional on-ramp, not a consumer CTA.
+  Hook: "Three patented compounds. Three published trials. One formulation designed for the patients who come back and say the probiotic didn't work. Gut Balance is ready for your recommendation." *(quest · retargeting)*
+
+### Immune-Anxious Isaac (matrix priority: quinary)
+- **Unaware** — gap: his seasonal-illness pattern points to gut-lining integrity and microbial diversity, which his current probiotic doesn't address.
+  Hook: "End of quarter. Before the trip. Third year in a row. The timing isn't bad luck. It's your gut, and it's on a predictable failure schedule." *(pas · cold)*
+- **Problem-aware** — gap: his gut-immunity instinct was right; the probiotic was the wrong tool because the live bacteria die before producing the active compounds.
+  Hook: "Your instinct was right. Your gut and your immune system are connected. The probiotic you've been taking just wasn't reaching the part of your gut that runs that connection." *(pastor · cold)*
+- **Solution-aware** — gap: the EpiCor 12-week RCT (17% fewer cold and flu symptom days) is the exact, measurable immunity proof he responds to.
+  Hook: "17% fewer cold and flu symptom days. That's not a brand claim. That's an RCT. 12 weeks. EpiCor, one of three postbiotic compounds in Gut Balance. The gut-immunity connection you suspected has a clinical receipt." *(fab · cold)*
+- **Product-aware** — gap: this isn't additive to his probiotic, it's a replacement, and the immunity outcome he cares about has a named published trial.
+  Hook: "Your probiotic counts live bacteria. We count what they were supposed to make. EpiCor alone, one of three compounds in Gut Balance, was tied to 17% fewer sick days in a clinical trial. What's your current probiotic's number?" *(fab · warm)*
+- **Most-aware** — gap: frame the purchase as a 30-day self-experiment with one variable and a defined outcome.
+  Hook: "Run the experiment. 30 days. One variable. EpiCor, Bereum, Totipro. See your own data." *(slap · retargeting)*
+
+### New-Normal New Mom Natalie (matrix priority: senary; body is sacred ground, function language only)
+- **Unaware** — gap: pregnancy and postpartum restructure the gut microbiome, a named event separate from sleep deprivation.
+  Hook: "Six months postpartum and your gut still doesn't feel like yours. That's not just the sleep. Pregnancy restructures your gut microbiome. It doesn't rebuild itself automatically." *(pas · cold)*
+- **Problem-aware** — gap: the mechanism is real and addressable; her probiotics couldn't reach the disrupted gut, but postbiotics deliver directly.
+  Hook: "You suspected the fog and the bloating weren't just tired-mom things. You were right. Your gut microbiome went through a structural change. The probiotic you tried couldn't reach it. Here's what can." *(pastor · cold)*
+- **Solution-aware** — gap: postbiotics are not live cultures, which is her core safety concern postpartum.
+  Hook: "Postbiotics aren't live bacteria. They're what bacteria produce: already stable, already active, already studied in human trials. That distinction matters. Especially right now." *(fab · cold)*
+- **Product-aware** — gap: peer recognition (other moms with the same story) is her highest-leverage proof at this stage.
+  Hook: "Other moms came to Gut Balance after exactly what you're describing: the bloating that wouldn't resolve, the fog they were told was just tired-mom life. It exists because nothing they tried addressed the actual mechanism." *(bab · warm)*
+- **Most-aware** — gap: she has low mental bandwidth; make the decision feel effortless and risk-free.
+  Hook: "You've done the research. You know what's in it. Try it for 30 days. If your gut doesn't feel different, you don't pay. That's it." *(slap · retargeting)*
+
+**Where to spend (the matrix's cross-stage read):** all six personas cluster at problem-aware and solution-aware, so put 50 to 60% of creative volume there, because the mechanism-distinction argument converts hardest at those stages. Allocate 20 to 25% to product-aware for objection resolution and trial conversion. Hold unaware at 10 to 15% (expensive cold audiences; iterate to find the sharpest entry hooks). Make most-aware retargeting high-volume but short and trial-CTA focused. For Practitioner Paul, weight solution-aware most, since that is his entry point and his recommendation drives downstream customer volume. Every cell does two jobs at once: indict the live-bacteria delivery model and validate the postbiotic mechanism. The vindication arc ("you weren't wrong, the product was") is the structural argument that makes switching feel rational rather than risky.
 
 ---
 
