@@ -2,7 +2,7 @@
 
 **Self-contained. No repo, tools, or API key needed.** Drop this whole document into a fresh Claude chat (paste it, or upload it as a file), then ask Claude to write briefs, hooks, video ad ideas, scripts, captions, or landing pages. Everything the original strategist had is in here: brand, voice, the full unspoken-truths bank, all six personas with their psychology profiles, product, offers, the competitive landscape, the Creative Matrix (pain vs competitor, what they love, wishes & gaps, hooks & angles), the 30-cell Messaging Matrix (persona × awareness), the creative-strategy synthesis, the voice-of-customer corpus, the reference-ad archetype library, and the trending-format library.
 
-> **Size note.** This is the full corpus (~50,000 words). It is too long to paste into one message on a free plan, so **upload it as a file attachment** instead. On a free plan even an uploaded file may exceed the available context; Claude Pro, Team, and Claude Code hold it comfortably. If you only need a fast hook, the numbered bank directly below is enough on its own.
+> **Size note.** This is the full corpus (~72,000 words, about 500 KB). It is too long to paste into one message on a free plan, so **upload it as a file attachment** instead. On a free plan even an uploaded file may exceed the available context; Claude Pro, Team, and Claude Code hold it comfortably. If you only need a fast hook, the numbered bank directly below is enough on its own.
 
 ## What's inside (in order)
 
