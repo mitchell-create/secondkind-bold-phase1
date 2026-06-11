@@ -1,151 +1,84 @@
 # TikTok POV Short (organic)
 
-**Output:** video · **Platforms:** TikTok + IG Reels · **Lift:** very_low · **Brand-intro:** none
+**Output:** video · **Platforms:** TikTok + IG Reels · **Lift:** very_low · **Brand-intro:** none (organic); jar-casually-in-frame allowed on the paid twin
+
+> **Spec refined 2026-06-11 from operator source examples.** Two corrections vs the old version of this recipe: (1) the line is not only a pain callout; the primary register is a meme-native identity flex borrowed from formats live in your own feed, and (2) a single candid clip with natural human motion is sanctioned alongside anchor + variation. SK Bold line bank: `clients/secondkind-bold/copy/tiktok-pov-shorts.md`.
 
 ## What this is
 
-A single 1-2 line POV text overlay (≤10 words) over a **locked-camera, anchor + variation** video. Same frame, same setting, one element changes across 3-5 cuts. The text stays static. The visual variation is what stops the scroll.
+**One or two lines TOPS** over a candid clip of a real person in a mundane real moment (at a desk, on a Zoom call, at a restaurant). 5-15 seconds. The line is the test variable; the visual is camouflage.
 
-## The core visual rule, anchor + variation
+**The two line registers:**
 
-A static clip with text overlay reads as lackluster. The scroll doesn't stop.
+1. **The identity flex (primary).** A meme-native, after-state, self-aware joke. The person is thriving; the line carries the vibe. Operator reference examples: *"Healed so hard I'm almost as weird as I was in middle school (except this time I love it)"* over someone on a Zoom call; *"Serving looks and spreadsheets"* over a woman at her desk in two outfits (two days). The line NEVER makes a product or health claim.
+2. **The POV open (secondary).** *"POV: [scenario]"* or a compressed one-sentence pain. Still valid, still useful for problem-aware testing.
 
-POV shorts work because the **camera is locked** (the anchor) and **one element changes across cuts** (the variation). The brain stays in the video to see what comes next.
+**The harvest mechanic:** before writing new lines, scroll your own TikTok/Reels feed for 10 minutes and borrow the caption formats that are surfacing RIGHT NOW. The format's whole trick is wearing this week's organic clothes. (This is also a culture-pulse signal source.)
 
-| Anchor (locked) | Variation (changes) |
-|---|---|
-| Same desk, same activity | Different outfits *(Dara's "serving looks and spreadsheets")* |
-| Same kitchen counter | Different probiotic bottles |
-| Same couch, same time of day | Body language degrading across the day |
-| Same coffee mug, same hand | Different supplements added each cut |
-| Same mirror | Outfits getting looser as bloat sets in |
+**The job:** this is the messaging test bed. Ship lines fast and cheap, read the response, and graduate winners into love letters, creator briefs, and paid hooks. It's also the easiest iteration on an existing winner: keep the line, swap the background and the face.
 
-Text overlay does NOT move. It frames the variation. The contrast between locked text + changing visual is the format.
+## The visual rule (refined)
 
-## When to use it
+Never a DEAD static clip. Two sanctioned visuals:
 
-- Pain points that compress into one painful sentence
-- Top-of-funnel testing before committing to longer creative
-- Daily-cadence fill, when you need to post but don't have time for a love letter
-- Slot before a love letter run as a qualifier
+1. **Single candid clip with natural motion.** Someone mid-call, mid-typing, mid-meal. The moment is alive even without cuts.
+2. **Anchor + variation (the stronger default).** Camera locked, one element changes across 2-5 cuts (outfits = different days, products, props, date stamps), text overlay static. The variation creates the scroll-stop.
 
-## Worked example, Danielle bloating brief
+## Worked examples
 
-**Brief:** `secondkind-bold-gut-balance-0c7dc7.yaml`
-**Persona:** Done-Everything Danielle (problem_aware)
-**Pain:** Persistent bloating that shows up even on clean-eating days
+### Variant A (flex, anchor + variation): "Serving looks and a calm gut."
 
-### Variant A, "day 60 of the probiotic. nothing."
+Direct homage to the source example. **Anchor:** same desk, same framing, chest-level, face optional. **Variation:** two cuts, two outfits, two days. She looks great in both. Text locked.
 
-**Text overlay (locked, never moves):**
-> *day 60 of the probiotic. nothing.*
+### Variant B (flex, anchor + variation): "Same jeans at 9am and 9pm. Unbothered."
 
-**Anchor:** Same kitchen counter, same morning light, same coffee mug. Camera locked, never moves.
+**Anchor:** same mirror, same jeans. **Variation:** morning light → evening light, both cuts comfortable and relaxed. (This subverts the old bloat-degradation execution: the after-state IS the story.)
 
-**Variation across 5 cuts:**
+### Variant C (flex, single candid clip): "Plot twist: I stayed for dessert."
 
-| Cut | Variation |
-|---|---|
-| 1 | Hand opens **Probiotic A** (recognizable-but-unnamed bottle), pops a pill |
-| 2 | Same hand, same motion, **Probiotic B** (different shape/color) |
-| 3 | **Probiotic C** |
-| 4 | **Probiotic D** |
-| 5 | Four empty bottles lined up on the counter. Hand reaches… nothing |
+One clip: restaurant table, dessert arriving or being eaten, natural motion, no cuts needed.
 
-### Variant B, "still bloated by 7pm"
+### Variant D (POV register, anchor + variation): "me googling 'why am I bloated' for the 400th time"
 
-**Text overlay (locked):** *still bloated by 7pm*
-
-**Anchor:** Same mirror, same room, same lighting condition (early evening).
-
-**Variation across 4 cuts:**
-1. Tight jeans (morning outfit, looking fine) → 2. Looser jeans (lunch shift) → 3. Leggings (afternoon switch) → 4. Robe / sweatpants (it's 7pm and she gave up)
-
-### Variant C, "googling 'why am I bloated' for the 400th time"
-
-**Text overlay (locked):** *me googling "why am I bloated" for the 400th time*
-
-**Anchor:** Same hand holding the same phone, same couch corner.
-
-**Variation across 5 cuts (date stamps as the variation):**
-1. *January* → 2. *March* → 3. *May* → 4. *August* → 5. *Today*
+**Anchor:** same hand, same phone, same couch corner. **Variation across 5 cuts:** date stamps January → March → May → August → Today. (The pain register survives; use for problem-aware tests.)
 
 ## How to produce the visuals in Higgsfield
 
-The key is **character/scene consistency across cuts**. Higgsfield's "use this image as reference" feature is what makes the anchor work.
+The key for variation builds is **scene consistency across cuts**: generate the anchor once, then use it as the reference image for every variation.
 
-**IMPORTANT:** Higgsfield should produce **clean visuals only, no text, no captions baked into the image.** The POV text overlay is added in CapCut afterwards. Every prompt below includes a no-text clause.
+**IMPORTANT:** clean visuals only, no text baked in. The overlay is added in CapCut. Every prompt carries the no-text clause.
 
-**Step 1: Generate the ANCHOR shot ONCE (use as reference for all variations):**
-
-```
-Variant A anchor:
-"Shot on iPhone, candid. Woman in her late 30s, brown hair pulled back, sitting at a kitchen counter with a coffee mug, natural morning light from a window, framed at chest level (face out of frame), domestic kitchen setting, 9:16 vertical, soft natural light, slightly imperfect framing. No text, no captions, no overlays, no graphics, no typography."
-
-Variant B anchor:
-"Shot on iPhone, candid. Woman in her late 30s in front of a mirror in a bedroom, early evening soft light, framed at chest level showing torso, 9:16 vertical. No text, no captions, no overlays, no graphics, no typography."
-
-Variant C anchor:
-"Shot on iPhone, candid. Close-up of a woman's hand holding an iPhone in landscape orientation, woman sitting on a couch corner, soft evening light, screen visible but blurred, 9:16 vertical. No text, no captions, no overlays, no graphics, no typography."
-```
-
-**Note on Variant C:** the phone screen will need a search bar visible in the variations. AI-generated phone screen text often comes out garbled, that's fine here because we want it blurred/abstract. If a clear readable search query is critical, you'll need to mock it up separately and composite in CapCut.
-
-**Step 2: Generate the VARIATIONS using the anchor as reference image:**
-
-In Higgsfield, drag the anchor image into the reference slot and use these prompts:
+**Step 1, the anchor (once):**
 
 ```
-Variant A variations (drop in anchor, generate 5 variations one at a time):
-
-Cut 1: "Use this image as reference. Same scene, same lighting. The hand is now opening a small amber-glass probiotic bottle with a white label."
-Cut 2: "Same scene, same lighting. The hand is now holding a different probiotic bottle, green capsule shape, clear plastic."
-Cut 3: "Same scene, same lighting. Hand holds a white pill bottle with blue text label."
-Cut 4: "Same scene, same lighting. Hand holds a fourth probiotic bottle, square shape, brown label."
-Cut 5: "Same scene, same lighting. Four empty probiotic bottles lined up on the counter. Hand is at rest on the counter beside them."
+"Shot on iPhone, candid. Woman in her late 30s sitting at a desk on a video call, laptop open, natural window light, framed at chest level, home office setting, 9:16 vertical, slightly imperfect framing. No text, no captions, no overlays, no graphics, no typography."
 ```
 
-```
-Variant B variations:
-
-Cut 1: "Use this image as reference. Same mirror, same room. Woman wearing fitted dark jeans and a tucked-in top, looks fine."
-Cut 2: "Same mirror, same room. Woman now in slightly looser jeans, top untucked."
-Cut 3: "Same mirror, same room. Woman in black leggings, oversized t-shirt."
-Cut 4: "Same mirror, same room. Woman in a robe, expression resigned."
-```
+**Step 2, variations (drop the anchor in the reference slot):**
 
 ```
-Variant C variations:
-
-Cut 1: "Use this image as reference. Same hand, same phone, same couch. Phone screen shows a Google search results page for 'why am I bloated' with a date stamp 'January 14' visible."
-Cut 2: "Same hand, same phone, same couch. Screen shows same search, date stamp 'March 22.'"
-Cut 3: "Same hand, same phone, same couch. Date stamp 'May 8.'"
-Cut 4: "Same hand, same phone, same couch. Date stamp 'August 15.'"
-Cut 5: "Same hand, same phone, same couch. Date stamp 'Today.'"
+Cut 1: "Use this image as reference. Same desk, same framing, same lighting. She wears a structured blazer over a white top."
+Cut 2: "Same desk, same framing, same lighting. She wears a colorful knit sweater, hair styled differently."
 ```
 
-**Tips for Higgsfield:**
-- Use "Higher reference weight" if the avatar / scene drifts between cuts
-- Don't write "different bottle", describe each variation specifically (color, shape, label style)
-- Lock the framing in your prompt every time ("same scene, same lighting, same framing")
-- Generate all variations in one session, different sessions can produce subtle lighting shifts
-- ALWAYS append the no-text clause to each variation prompt, AI will hallucinate captions otherwise
-- The POV text overlay is added in CapCut, not baked into the image
+**Tips:** raise reference weight if the scene drifts; describe each variation concretely (color, garment, prop), never "a different outfit"; generate all cuts in one session; keep faces optional (the line is the hero); ALWAYS append the no-text clause.
 
-### Production workflow (per variant)
+For single-candid-clip variants, generate one image and animate it (image-to-video) with subtle natural motion (typing, nodding on a call, stirring), or use real UGC footage.
 
-1. Generate the anchor in Higgsfield
-2. Generate 4-5 variations using the anchor as reference
-3. Drop in CapCut: cuts in sequence, text overlay locked above all
-4. Export 9:16
+### Production workflow
+
+1. Pick a line from the bank (or harvest a fresh format from your own feed)
+2. Choose visual: single candid-motion clip OR anchor + 2-5 variations
+3. Generate in Higgsfield; assemble in CapCut; text locked, large, centered
+4. Export 9:16; minimal or no caption; no brand in the organic version
+5. Log the line + result; winners graduate (love letter, creator brief, paid hook)
 
 ### Pitfalls
 
-- **Static clip with text overlay.** This is the #1 failure. Always use anchor + variation.
-- **Camera moves between cuts.** Kills the anchor. Lock the frame in every prompt.
-- **Variation too subtle.** If you can't see the change in <1 second, it's not a variation. Make it obvious.
-- **Avatar drifts across cuts.** Use the anchor as reference image, increase reference weight if needed.
-- **Over 10 words of text.** Cut. The visual carries the meaning.
-- **Trying to include the brand.** Don't. Brand-intro is none for a reason.
-- **Generic wellness footage (sunrise, yoga, smoothies).** Stay domestic.
-- **Branding the clip.** No logos, no hashtags in the visual itself.
+- **A claim sneaking into the line.** The line is a vibe, never a benefit statement. No product words, no health outcomes. (Also keep "healed" out of our lines specifically: FDA-adjacent for a supplement advertiser. Use "Growth." / "Plot twist:" / "Character development:" constructions.)
+- **A dead static clip.** If nothing in the frame is alive, it scrolls past.
+- **Over-writing.** Two lines maximum. If it needs a third line it's a love letter.
+- **Borrowing stale formats.** If the caption format peaked in your feed weeks ago, it's expired. Harvest fresh.
+- **Variation too subtle.** The change must read in under a second.
+- **Forcing the brand in.** Organic version carries none; the paid twin gets at most the jar casually in frame.
+- **Generic wellness footage.** Desks, calls, restaurants, cars. Never sunrise yoga.

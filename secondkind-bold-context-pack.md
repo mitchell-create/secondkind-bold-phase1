@@ -7762,16 +7762,22 @@ trending_formats:
  - id: tiktok-love-letter
  name: TikTok Love Letter
  summary: >-
- Long text overlay on a short, low-lift video. Calls out the target
- audience directly ("Listen, girls", "Hot girls", "POV: you"). Borrows
- vernacular from viral TikTok comments. Creator content or iPhone
- B-roll. The text monologue is the hero.
+ (REDEFINED 2026-06-11 from operator-approved examples.) Short, warm,
+ educational direct-address piece: 35-75 words, 3 beats, 20-40 seconds.
+ Beat 1: affectionate audience callout plus one surprising HEDGED fact or
+ identity behavior. Beat 2: 2-3 emoji-led ingredient-level lines in
+ structure-function language ("X supports Y"), receipts said casually.
+ Beat 3: product named once plus an effortless close ("easy add") and an
+ optional kicker reframe. Light, positive energy: no pain dwelling, no
+ enemy prosecution, no guarantee, no hard CTA, at most one wry aside.
+ NOT a long confessional monologue.
  core_components:
- - Audience callout opener (Listen, girls / POV / Hey)
- - Long monologue-style text overlay
- - Simple B-roll or creator content
- - Match-the-feed visual aesthetic
- hook_pattern: "Listen, [audience]: [insight that follows]..."
+ - Warm audience callout + one hedged surprising fact or identity behavior
+ - 2-3 emoji-led "[ingredient/mechanism] supports [function]" lines
+ - Product named once + effortless close ("easy add" / "two capsules a day")
+ - Optional kicker reframe (upgrade vs foundation)
+ - Match-the-feed visual aesthetic (B-roll, creator, or AI UGC VO)
+ hook_pattern: "[Girls/Guys/Hot girls/Ladies], [surprising hedged fact or identity behavior]."
  best_when:
  awareness_levels: [unaware, problem_aware]
  persona_types: [community-driven, identity-focused, gen-z, millennial]
@@ -7786,14 +7792,20 @@ trending_formats:
  - id: tiktok-short-pov
  name: TikTok Short / POV
  summary: >-
- Shorter cousin of the Love Letter. One or two lines of POV text on
- top of B-roll. Fastest format to test. Borrows directly from what's
- trending in the operator's own reels feed at time of creation.
+ (REFINED 2026-06-11 from operator source examples.) One or two lines TOPS
+ over a candid clip of a real person in a mundane moment (desk, Zoom call).
+ The line is a meme-native identity flex / after-state joke borrowed from
+ caption formats live in the feed right now ("Serving looks and
+ spreadsheets"), or a POV open. Never a product claim. Visual: single
+ candid clip with natural motion, or locked-camera anchor + variation (two
+ outfits = two days). Never a dead static clip. The rapid messaging test
+ bed: winning lines graduate into love letters, creator briefs, paid hooks.
  core_components:
- - 1-2 line POV opener
- - Mid-action visual / B-roll
- - Quick punchline or call-to-action
- hook_pattern: "POV: [scenario]"
+ - 1-2 line overlay, borrowed from formats live in the feed
+ - Identity flex / after-state joke or POV open; never a product claim
+ - Real person, mundane setting, natural motion (or locked-camera variation cuts)
+ - Minimal brand presence; the line is the test variable
+ hook_pattern: "[Meme-native identity one-liner]  OR  POV: [scenario]"
  best_when:
  awareness_levels: [unaware, problem_aware]
  persona_types: [gen-z, casual-scrollers, scroll-fatigued]
@@ -7977,6 +7989,8 @@ These are not required, the methodology above stands on its own. But if availabl
 ---
 
 ## Operating rules
+
+**Scope note (2026-06-11):** these rules apply at full strength on paid surfaces (hooks, statics, LPs). On comments and organic TikTok/Reels, sanctioned flexes exist: questions allowed, comment-native emoji allowed, receipts may move to the pinned comment, pride/solidarity framing encouraged for Danielle and Paula (shame stays banned), and ironic quotation of wellness-speak is allowed as category mockery. The claims rules (FDA) and identity rules (the cut never lands on her) are absolute everywhere.
 
 These are not style preferences, they are load-bearing strategy. Every piece of content for SecondKind Bold obeys them.
 

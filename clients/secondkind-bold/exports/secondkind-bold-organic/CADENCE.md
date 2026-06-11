@@ -13,10 +13,10 @@ This is the recommended cadence for SecondKind Bold organic content. Use it as y
 
 | Recipe | Frequency | Where it fits |
 |---|---|---|
-| `text-overlay-pov` (POV Short) | **Daily-ish** (3-4× per week) | Daily TikTok backbone. Low effort, ships fast, great for testing pains. |
+| `text-overlay-pov` (POV Short) | **Daily-ish** (3-4× per week) | Daily TikTok backbone. Low effort, ships fast; the line-testing bed. Winners graduate to bigger formats. |
 | `native-ai-product-shot` | **2-3× per week** | Feed-fill on IG. Builds product recall through visual repetition. |
 | `ugc-cutup-voiceover` | **1-2× per week** | When you have existing UGC footage from past campaigns. |
-| `text-overlay-monologue` (Love Letter) | **1× per week** | Your weekly emotional anchor. The deeper, longer piece that builds the brand voice. |
+| `text-overlay-monologue` (Love Letter) | **1× per week** | Weekly educational charmer: callout + surprising fact + product as easy add (35-75 words). Builds warmth and brand recall. |
 | `static-educational-card` | **1× per week** | Educational rhythm. IG variant or TikTok native variant, alternate weeks. |
 | `not-x-objection` | **1× per week** | Brand positioning reminder. *"We're not probiotics"* style. |
 | `engagement-prompt` (feed) | **1× per week MAX** | Drive comments, get VOC. More than this and the feed feels thirsty. |
@@ -37,7 +37,7 @@ This is just one possible mix, you'll find your own rhythm.
 | Mon | IG story | `engagement-prompt` (poll) | Quick poll while feed engagement builds |
 | Tue | TikTok | `text-overlay-pov` | Daily backbone |
 | Tue | IG feed | `native-ai-product-shot` | Feed-fill brand recall |
-| Wed | TikTok + IG Reels | `text-overlay-monologue` (Love Letter) | Weekly emotional anchor |
+| Wed | TikTok + IG Reels | `text-overlay-monologue` (Love Letter) | Weekly fact-led charmer |
 | Wed | IG story | `engagement-prompt` (this-or-that) | Light engagement break |
 | Thu | TikTok | `text-overlay-pov` | Daily backbone |
 | Thu | IG carousel | `static-educational-card` | Educational rhythm |
@@ -65,7 +65,7 @@ Don't try to do all 13 pieces in week 1. Build up.
 
 - **Never two of the same recipe back-to-back.** Same recipe every day = templated feed = scroll-past. Always alternate.
 - **Engagement prompts max 1×/week as feed posts.** Over-cadence kills the format.
-- **Love letter is the weekly emotional anchor.** Drop one per week minimum. This is the piece that builds the brand voice.
+- **Love letter is the weekly fact-led charmer.** Drop one per week minimum. Short (35-75 words), warm, educational; the piece that builds affection for the brand.
 - **AI UGC influencer requires the canonical Soul ID.** If you haven't set it up, drop those from the schedule until you do.
 - **Pixar AI Slop is special, not weekly.** It's high-effort and high-attention. Use it 1× per month max, when the matrix entry warrants the cringe permission.
 

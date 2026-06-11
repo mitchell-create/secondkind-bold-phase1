@@ -27,46 +27,57 @@ recipes:
 
  - id: text-overlay-monologue
  name: TikTok Love Letter (organic)
- source: dara_denny
- description: Long text monologue overlaid on B-roll. Direct persona callout. Brand stays out 60-70% of the way.
+ source: operator_examples_2026-06-11 (redefined; was dara_denny long-monologue version)
+ description: Short, warm, educational direct-address piece. Callout + one hedged surprising fact, 2-3 emoji-led "X supports Y" lines, product named once + effortless close. Product lands in the final beat (~60-75% in).
  output_format: video
  platforms: [tiktok, instagram_reels]
  production_lift: low
  brand_intro_delay: late
- copy_length: 150-300 words
- assets_primary: AI B-roll or existing UGC lifestyle footage (no creator audio, runs silent under text)
+ copy_length: 35-75 words (3 beats, 20-40 seconds)
+ assets_primary: AI B-roll or existing UGC lifestyle footage (no creator audio, runs silent under text); also works as VO via the AI UGC avatar
  assets_fallback: stock footage (Storyblocks, Pexels) of morning routine / domestic moments
  skill_level: vanilla
  best_for:
- - problem_aware personas with high emotional pain
- - matrix positions where persona feels betrayed by category mainstream
- - briefs with rich PASTOR copy already written
+ - unaware / problem_aware personas who respond to a surprising fact
+ - identity-badge opens ("hot girls...") for Danielle and Paula
+ - angles with a clean ingredient-to-function education beat (the three compounds)
  pairs_with_frames: [the-expose, the-confession, the-skeptic, things-i-wish-i-knew, the-investigation]
  notes: |
- Direct callout opener ("Listen, girls who...", "POV: you..."). The text is the hero;
- video is visual rhythm. Background footage should be quiet, not dramatic, generic
- "wellness" footage will feel tone-deaf. Borrow vernacular from viral TikTok comments.
+ REDEFINED 2026-06-11 from operator-approved examples (see clients/secondkind-bold/copy/tiktok-love-letters-v3.md
+ for the spec, the reference examples, and 8 worked scripts). Tone is light, warm, educational:
+ no pain dwelling, no enemy prosecution, no guarantee, no hard CTA, at most one wry aside.
+ Hedge the science ("around 70%", "studied over 84 days"); structure-function phrasing only.
+ The text is the hero; footage stays quiet and domestic, never dramatic wellness B-roll.
+ The OLD long-monologue form (150-300 word confessional) is NOT this recipe anymore.
 
  - id: text-overlay-pov
  name: TikTok POV Short (organic)
- source: dara_denny
- description: 1-2 lines of POV text (≤10 words) overlaid on a single short clip. Fastest format to ship.
+ source: operator_examples_2026-06-11 (refined; dara_denny lineage)
+ description: 1-2 lines TOPS over a candid clip of a real person in a mundane moment (desk, Zoom call). Line is a meme-native identity flex / after-state joke borrowed from live feed formats, or a POV open. Fastest format to ship; the messaging test bed.
  output_format: video
  platforms: [tiktok, instagram_reels]
  production_lift: very_low
  brand_intro_delay: none
- copy_length: ≤10 words
- assets_primary: existing UGC clip or AI-generated lifestyle B-roll
- assets_fallback: stock footage of preparing breakfast / getting ready / morning routine
+ copy_length: 1-2 lines (roughly 12 words max)
+ assets_primary: candid clip of a real person with natural motion (UGC, AI UGC avatar) or anchor + variation cuts
+ assets_fallback: stock footage of desk work / getting ready / morning routine (must have human motion)
  skill_level: vanilla
  best_for:
- - pain points that compress into one painful sentence
- - top-of-funnel testing before committing to longer creative
- - daily-cadence weekly fill
+ - rapid line/messaging testing before investing in creator content (winners graduate)
+ - after-state identity flexes (the thriving version of the persona)
+ - POV pain opens that compress into one sentence
+ - daily-cadence fill
  pairs_with_frames: [things-only-niche-people-understand, pov-just-got-into, expectations-vs-reality, red-flags, the-confession]
  notes: |
- One line, one moment, one clip. The POV must mirror the persona's exact inner
- monologue. Borrow phrasing from viral TikTok comments. Avoid generic wellness imagery.
+ REFINED 2026-06-11 from operator source examples ("Healed so hard I'm almost as weird
+ as I was in middle school", "Serving looks and spreadsheets"). Harvest step: before
+ writing new lines, borrow caption formats currently surfacing in the operator's own
+ feed. The line NEVER makes a product or health claim; it carries a vibe, the person is
+ thriving. Visual: single candid clip with natural motion OR locked-camera anchor +
+ variation (two outfits = two days). Never a dead static clip. SK Bold line bank:
+ clients/secondkind-bold/copy/tiktok-pov-shorts.md. Avoid "healed" in our lines
+ (FDA-adjacent for a supplement advertiser); use "Growth." / "Plot twist:" /
+ "Character development:" constructions instead.
 
  - id: david-goliath-no-intro
  name: David & Goliath (organic, brand-late)

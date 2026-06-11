@@ -5183,16 +5183,29 @@ trending_formats:
  - id: tiktok-love-letter
  name: TikTok Love Letter
  summary: >-
- Long text overlay on a short, low-lift video. Calls out the target
- audience directly ("Listen, girls", "Hot girls", "POV: you"). Borrows
- vernacular from viral TikTok comments. Creator content or iPhone
- B-roll. The text monologue is the hero.
+ Short, warm, educational direct-address piece: 35-75 words, 3 beats,
+ 20-40 seconds, delivered as text overlay or VO over simple B-roll /
+ creator content / AI UGC. Beat 1: affectionate audience callout plus
+ one surprising HEDGED fact or identity behavior ("guys, sperm
+ production takes around 74 days", "hot girls put collagen in their
+ morning coffee"). Beat 2: 2-3 emoji-led ingredient-level lines in
+ structure-function language ("X supports Y"), receipts said casually
+ ("studied over 84 days"). Beat 3: product named once plus an
+ effortless close ("easy add", "one pack a day") and an optional smart
+ kicker reframe ("the upgrade, but the foundation goes first"). Light,
+ positive energy: no pain dwelling, no enemy prosecution, no guarantee,
+ no hard CTA, at most one wry aside. REDEFINED 2026-06-11 from
+ operator-approved examples; previously misdocumented here as a long
+ 150-300 word confessional monologue (that long form is a different
+ recipe, not this format). Worked SK Bold scripts:
+ clients/secondkind-bold/copy/tiktok-love-letters-v3.md.
  core_components:
- - Audience callout opener (Listen, girls / POV / Hey)
- - Long monologue-style text overlay
- - Simple B-roll or creator content
- - Match-the-feed visual aesthetic
- hook_pattern: "Listen, [audience]: [insight that follows]..."
+ - Warm audience callout + one hedged surprising fact or identity behavior
+ - 2-3 emoji-led "[ingredient/mechanism] supports [function]" lines
+ - Product named once + effortless close ("easy add" / "two capsules a day")
+ - Optional kicker reframe (upgrade vs foundation)
+ - Match-the-feed visual aesthetic (B-roll, creator, or AI UGC VO)
+ hook_pattern: "[Girls/Guys/Hot girls/Ladies], [surprising hedged fact or identity behavior]."
  best_when:
  awareness_levels: [unaware, problem_aware]
  persona_types: [community-driven, identity-focused, gen-z, millennial]
@@ -5200,21 +5213,37 @@ trending_formats:
  format_type: video
  production_complexity: low
  example_brand: DTC brands testing rapid messaging variants
- source: External trending performance video, 2026
+ source: Operator-approved examples 2026-06-11 (supersedes external trending-video description)
  status: Active
  date_added: 2026-05-15
 
  - id: tiktok-short-pov
  name: TikTok Short / POV
  summary: >-
- Shorter cousin of the Love Letter. One or two lines of POV text on
- top of B-roll. Fastest format to test. Borrows directly from what's
- trending in the operator's own reels feed at time of creation.
+ One or two lines TOPS over a candid clip of a real person in a
+ mundane real moment (at a desk, on a Zoom call). Two line registers:
+ (a) a meme-native identity flex / after-state self-aware joke borrowed
+ from caption formats live in the operator's own feed right now
+ ("Healed so hard I'm almost as weird as I was in middle school",
+ "Serving looks and spreadsheets"), or (b) a POV scenario open
+ ("POV: ..."). The line never makes a product claim; the person is
+ thriving and the line carries the vibe. Brand presence stays minimal
+ (account, caption, product casually in frame). Visual: a single candid
+ clip with natural motion, or the stronger locked-camera variation cut
+ (same seat, two outfits = two days). Never a dead static clip.
+ Primary job: the rapid, cheap messaging TEST BED; winning lines
+ graduate into love letters, creator briefs, and paid hooks. Also the
+ easiest iteration on an existing winner: keep the line, swap the
+ background and the face. Spec refined 2026-06-11 from
+ operator-provided source examples. SK Bold line bank:
+ clients/secondkind-bold/copy/tiktok-pov-shorts.md.
  core_components:
- - 1-2 line POV opener
- - Mid-action visual / B-roll
- - Quick punchline or call-to-action
- hook_pattern: "POV: [scenario]"
+ - 1-2 line overlay, borrowed from formats live in the operator's own feed
+ - Identity flex / after-state joke or POV open; never a product claim
+ - Real person, mundane setting, natural motion (or locked-camera variation cuts)
+ - Minimal brand presence; the line is the test variable
+ - Winners graduate to bigger formats or iterate with new visuals and faces
+ hook_pattern: "[Meme-native identity one-liner]  OR  POV: [scenario]"
  best_when:
  awareness_levels: [unaware, problem_aware]
  persona_types: [gen-z, casual-scrollers, scroll-fatigued]
@@ -5222,7 +5251,7 @@ trending_formats:
  format_type: video
  production_complexity: low
  example_brand: Rapid-test creative across niches
- source: External trending performance video, 2026
+ source: Operator-approved examples 2026-06-11 (supersedes external trending-video description)
  status: Active
  date_added: 2026-05-15
 
@@ -5397,7 +5426,63 @@ These are not required, the methodology above stands on its own. But if availabl
 
 ---
 
+## The culture layer and surface tiers (added 2026-06-10)
+
+The operating rules below were originally written as one rulebook for every surface. That over-restricts. The system now runs on four layers and four surface tiers: the rules below apply at full strength to paid surfaces, while organic and comment surfaces carry sanctioned flexes defined here.
+
+### The four layers
+
+1. **Layer 0, law (never breaks):** FDA/FTC claims discipline. No disease claims (cure, treats, heals, prevents, reverses, eliminates). Every efficacy claim substantiated and reachable. Influencer/UGC content is in regulatory scope. Enforcement targets claims, never tone: nothing in law prevents funny, dark, gross, or weird.
+2. **Layer 1, identity (never breaks):** side with her against the category; the cut lands on the industry, the mechanism, or us, never on her; vindication arc; never mock her past purchases; never bash doctors; Natalie's body is sacred ground; no em-dashes or en-dashes anywhere; receipts exist and are at most one tap away.
+3. **Layer 2, taste defaults (breakable per surface, with evidence):** most of the Operating rules below. Correct defaults for paid. Chalk, not walls.
+4. **Layer 3, culture (expires by default):** vernacular, moods, sounds, formats. The live version is maintained in the AdCreatives repo at `clients/secondkind-bold/culture/` (pulse-*.md, vocabulary.yaml, bold-bets.md), refreshed biweekly via the `culture-pulse` skill. Working outside that repo: use the snapshot below, and treat anything past its stale date as expired. Say so rather than guessing.
+
+### The four surface tiers
+
+| Tier | Surface | License |
+|---|---|---|
+| T1 | Comment replies, community posts | Maximum. Group-chat register: questions allowed, comment-native emoji allowed, banter, casing free. Only Layers 0-1 constrain. |
+| T2 | Organic TikTok / Reels | High. Trend-riding; jokes don't need in-frame citations (the receipt goes in the pinned comment or caption). |
+| T3 | Paid organic-style (love letters, Spark-type) | Medium. The rules below largely apply; the culture layer feeds vocabulary. |
+| T4 | Paid hooks, statics, LPs | Tightest. Full rulebook plus FDA fine print. |
+
+### Sanctioned T1-T2 flexes (from the 2026-06-10 guidelines audit)
+
+- **Pride is not shame.** Body solidarity in the hot-girls-with-IBS lineage ("hot girls know which bathrooms to trust") is encouraged for Danielle and Paula. The shame ban stands in full; the reclamation register is open. Never Natalie.
+- **Questions are allowed on T1-T2.** Confession-prompt captions ("be honest: how many probiotic bottles have you finished and felt nothing?") drive the early comment density the algorithm rewards. Paid headlines stay declarative.
+- **Comment-native emoji are vocabulary on TikTok:** 💀 (too real), 😭 (dramatic relatable), 🙏 (sparingly, T1 only). The Meta caption palette is unchanged.
+- **Receipts move one tap away on T2.** A meme doesn't need a citation in-frame; the pinned comment carries the trial. Paid claims keep the receipt in the next line.
+- **Ironic quotation of wellness-cheese is allowed as category mockery** ("your gut journey," said with an eye roll). Sincere use stays banned.
+- **Competitor names: still never in paid.** If a commenter names one first ("is this better than Seed?"), answer honestly, mechanism-first, never disparaging. On T2, react to category props ("the internal shower," "53 billion CFUs"), never brand names.
+- **The second enemy.** The indictment extends beyond the probiotic industry to the guttok hack economy ("no ginger shot is coming to save you"). We side with her against both; our receipts are the audit. Mock the hacks, never the people doing them.
+- **Cultural urgency is exempt from the urgency ban** ("this sound dies Friday" is true and isn't about inventory). Offer urgency stays banned.
+
+### The six-question gate (fast lane for T1-T2; replaces the full pre-flight there)
+
+1. Layer 0 clean? 2. Layer 1 intact (the cut lands on category, mechanism, or us)? 3. Two or more live cultural signals that the audience talks this way right now? 4. Would she screenshot it to the group chat (share) or screenshot it to dunk (cringe)? 5. Low-blast-radius entry rung available? 6. Kill date and metric named before shipping?
+
+Six yes = ship. No further permission needed.
+
+### The promotion ladder (how the voice improves instead of staying stubborn)
+
+T1 comment → T2 organic → T3 paid organic-style → T4 paid hook. Evidence moves lines up the ladder; a bet surviving 60 days at T3 becomes a proposed edit to these operating rules (operator sign-off is the one human gate). Every shipped piece tags which defaults it bent so results can be correlated with boldness.
+
+### Culture snapshot (as of 2026-06-10; STALE AFTER 2026-07-10)
+
+- Guttok (~1B views) is in its debunk era: the audience mocks internal showers, ginger shots, and olive-oil hacks, and is primed to side with whoever holds receipts. We are the only voice in the conversation holding RCTs.
+- The hot-girls-with-IBS pride lineage is durable in-group register (since 2022, 110M+ views).
+- Live mood (dies ~2026-07-01): the Nirvana "oh well, whatever, nevermind" resignation energy; a 1:1 map to the LV/LI personas. Open in resignation, land the vindication turn.
+- Live constructions: "this is a love letter to...", "POV:", "be honest: [confession]", "the math isn't mathing", "you know the one", "heavy on the [X]", "in shambles".
+- Do not borrow: teen slang (skibidi, delulu), mainstream trend sounds older than 48 hours, sincere wellness-speak.
+- Active bets in test: comments-as-home-turf, anti-hack audit series, pride-frame overlays, resignation ride, anti-ad honesty, comment-bait questions, lowercase overlay A/B (operator sign-off required first), visceral corpse-doctrine escalation.
+
+If today is past the stale date and no newer pulse is available, say so before writing T1-T2 copy, and write only to the durable registers (debunk-era audit, pride lineage, confessional specificity).
+
+---
+
 ## Operating rules
+
+**Scope note (2026-06-10):** the rules below apply at full strength on paid surfaces (T3-T4). On comments and organic (T1-T2), the culture layer section above defines the sanctioned flexes. Layers 0 and 1 are absolute everywhere.
 
 These are not style preferences, they are load-bearing strategy. Every piece of content for SecondKind Bold obeys them.
 
@@ -5460,4 +5545,4 @@ When writing content, default to **Phase 1 scope** unless the user explicitly sa
 
 ---
 
-*Generated 2026-05-23 from clients/secondkind-bold/ Phase 1 artifacts and the creative-strategy.md synthesis. Re-generate this skill if the underlying strategy is updated.*
+*Generated 2026-05-23 from clients/secondkind-bold/ Phase 1 artifacts and the creative-strategy.md synthesis. Updated 2026-06-10: culture layer, surface tiers, T1-T2 flexes, and promotion ladder added from the guidelines audit (live layer: clients/secondkind-bold/culture/ in the AdCreatives repo). Re-generate this skill if the underlying strategy is updated.*

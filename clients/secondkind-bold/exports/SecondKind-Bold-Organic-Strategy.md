@@ -56,8 +56,8 @@ A "recipe" is a way to make a piece of content without a shoot. Different recipe
 
 | Recipe | What it makes |
 |---|---|
-| Love letter | A long text monologue over AI B-roll. Emotional, persuasive, deep. |
-| POV short | A 5-second video with 10 words of text and a locked-camera variation pattern. |
+| Love letter | A short, warm, educational 3-beat piece (35-75 words): callout + surprising fact, emoji-led supports lines, product + easy close. (Redefined 2026-06-11.) |
+| POV short | A 5-15 second video: 1-2 line meme-native identity flex (or POV open) on a candid clip; single candid-motion clip or locked-camera variation. The messaging test bed. |
 | David & Goliath | A piece that calls out the probiotic industry, then introduces postbiotics. |
 | Pixar AI animation | Outrageous AI cartoon characters acting out the brand narrative. |
 | "We're not [X]" | A bold brand-positioning piece, *"We're not probiotics. We don't want to be."* |

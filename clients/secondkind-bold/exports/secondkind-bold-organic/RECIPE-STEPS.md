@@ -46,7 +46,7 @@ The skill never makes the actual images. It tells you exactly what to paste wher
 **1. Get the script + prompts from Claude**
 - Open Claude Code
 - Paste: `Use secondkind-bold-organic. Pull pain-XXX. Use text-overlay-monologue.`
-- Claude returns: 150-300 word monologue + 4-6 Higgsfield prompts for B-roll
+- Claude returns: a 35-75 word, 3-beat love letter (callout + hedged fact, emoji-led "supports" lines, product + effortless close) + 3-4 Higgsfield prompts for B-roll
 
 **2. Generate B-roll in Higgsfield**
 - Go to https://higgsfield.ai → Create Image
@@ -76,7 +76,7 @@ The skill never makes the actual images. It tells you exactly what to paste wher
 
 **1. Get the POV line + prompts**
 - Paste: `Use secondkind-bold-organic. Pull pain-XXX. Use text-overlay-pov.`
-- Claude returns: ≤10-word POV line + 1 anchor prompt + 4-5 variation prompts
+- Claude returns: a 1-2 line flex/POV (from the line bank or your own-feed harvest) + visual plan: single candid-motion clip OR 1 anchor prompt + 3-5 variation prompts
 
 **2. Generate the ANCHOR shot in Higgsfield**
 - Higgsfield → Create Image

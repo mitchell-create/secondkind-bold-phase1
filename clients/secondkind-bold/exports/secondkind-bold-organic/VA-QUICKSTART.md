@@ -46,8 +46,8 @@ Use secondkind-bold-organic. Pull pain-XXX. Use the not-x-objection recipe.
 ```
 
 Recipe names (paste-able):
-- `text-overlay-monologue`, long TikTok love letter
-- `text-overlay-pov`, short POV with locked-camera variation
+- `text-overlay-monologue`, short TikTok love letter (35-75 words, callout + fact + easy close)
+- `text-overlay-pov`, 1-2 line flex/POV short (candid-motion clip or locked-camera variation)
 - `david-goliath-no-intro`, calling out the probiotic industry
 - `pixar-ai-slop`, AI animation (needs VFX skill)
 - `not-x-objection`, *"We're not probiotics. We don't want to be."*
@@ -63,10 +63,10 @@ You'll get something like:
 
 > **Matrix entry:** pain-001, probiotic efficacy plateaus
 > **Recipe:** TikTok Love Letter
-> **Headline:** *"Listen, girls who eat clean all day and still bloat by 7pm…"*
-> **Body:** [actual 200-word monologue]
+> **Opener:** *"Girls, your gut lining rebuilds itself about every week."*
+> **Body:** [35-75 word, 3-beat letter: callout + fact → emoji-led "supports" lines → product + easy close]
 > **Visual:** [specific scene description] · **Fallback:** [stock alternative]
-> **Brand-intro point:** line 11
+> **Brand-intro point:** final beat (~60-75% in)
 > **Production workflow:** 1. … 2. … (total )
 > **Rule check:** all pass ✓
 

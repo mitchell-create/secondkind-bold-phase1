@@ -1,5 +1,7 @@
 # Sample Content Ideas
 
+> **NOTE (2026-06-11): two formats were redefined after these samples were written.** The TikTok love letter is now SHORT (35-75 words, 3 beats: callout + surprising fact, emoji-led supports lines, product + easy close), and the POV short line is a meme-native identity flex, not only a pain callout. Any "long text overlay" love-letter samples below are format-stale: treat them as angle/voice references only. Current specs: `secondkind-bold-organic/recipes/` and `clients/secondkind-bold/copy/tiktok-love-letters-v3.md` + `tiktok-pov-shorts.md`.
+
 This document shows you what to expect when you ask Claude for content ideas using the `secondkind-bold-organic` skill.
 
 **How to read each example:**

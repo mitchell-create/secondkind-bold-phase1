@@ -74,7 +74,7 @@ See **`CADENCE.md`** for the full weekly schedule. The short version:
 - **Daily backbone:** 1+ feed post per day (TikTok + IG Reels). Inconsistency hurts your ad CPMs. Better to post a low-effort piece daily than a perfect piece weekly.
 - **Mix recipes**, same recipe every day kills recall; same recipe never used breaks the recall engine.
 - **Engagement prompts:** 1× per week feed posts MAX. 2-3× per week as stories is fine.
-- **Love letter:** 1× per week, your weekly emotional anchor.
+- **Love letter:** 1× per week. Short educational charmer (35-75 words): warm callout + surprising fact + product as easy add. (Redefined 2026-06-11; no longer the long emotional monologue.)
 - **Pixar AI slop:** 1× per month, special occasions only.
 - **AI UGC influencer:** 1× per week once your Soul ID is set up.
 
@@ -84,8 +84,8 @@ A typical week: ~10-13 pieces across 6 different recipes (8 feed posts + 5 stori
 
 | Recipe | Output | When |
 |---|---|---|
-| `text-overlay-monologue` (Love Letter) | Video | Emotional pain, long copy |
-| `text-overlay-pov` (POV Short) | Video | Pain fits in 10 words. Daily fill. |
+| `text-overlay-monologue` (Love Letter) | Video | Surprising fact + light education, 35-75 words |
+| `text-overlay-pov` (POV Short) | Video | 1-2 line flex or POV from live feed formats. Daily fill + line test bed. |
 | `david-goliath-no-intro` | Video or carousel | Calling out the probiotic industry |
 | `pixar-ai-slop` | Animation | Personifying bacteria / category villains. VFX skill. |
 | `not-x-objection` | Static or short video | Brand positioning. "We're not probiotics." |
@@ -105,9 +105,9 @@ Each recipe walkthrough below shows you exactly what the steps look like and wha
 
 ## Recipe 1: TikTok Love Letter (`text-overlay-monologue`)
 
-**What it makes:** A 30-60 second TikTok / Reel with a long text monologue overlaid on silent AI B-roll. The text tells the story; the video sets the mood.
+**What it makes:** A 20-40 second TikTok / Reel: a short, warm, educational 3-beat letter (35-75 words) revealed beat-by-beat over silent AI B-roll. Callout + surprising fact, then emoji-led "supports" lines, then product named once + easy close.
 
-**When to use it:** When the pain is emotional and the persona needs a long story to feel seen. Best for problem-aware pains.
+**When to use it:** When a surprising fact or identity behavior carries the open. Unaware / problem-aware. (Redefined 2026-06-11; this is no longer a long emotional monologue.)
 
 **Tools:** Claude, Higgsfield, CapCut
 
@@ -118,47 +118,44 @@ Each recipe walkthrough below shows you exactly what the steps look like and wha
 3. **Assemble in CapCut**: drop clips, add text overlay line-by-line, add minimal music
 4. **Export 9:16, post**
 
-### Example, `hook-002`: *"You took three different probiotics. You still feel this way. That's not a you problem."*
+### Example: the gut-lining clock (script 2 in `clients/secondkind-bold/copy/tiktok-love-letters-v3.md`)
 
 **You type:**
-> *Use secondkind-bold-organic. Pull hook-002. Use text-overlay-monologue.*
+> *Use secondkind-bold-organic. Pull a fact angle. Use text-overlay-monologue.*
 
 **Claude returns:**
 
-**OPENER (first 3 sec, white text):**
-> *Listen, to the women on your third probiotic, still feeling like a stranger in your own body.*
+**BEAT 1 (opener, first 3 sec, white text):**
+> *Girls, your gut lining rebuilds itself about every week. What you feed it today actually matters.*
 
-**BODY MONOLOGUE (lines reveal one at a time, 50-60 sec):**
-> *You did everything they said. The probiotic with 50 billion CFUs. The one with the "smart capsule." The expensive one from the wellness influencer.*
-> *Three brands. Two years. Still bloated by 7pm.*
-> *Here's what nobody tells you. Most probiotic bacteria die in stomach acid before they ever reach your gut. The few that survive face a colonization battle they don't win.*
-> *That's not a flaw in a specific brand. That's the structural reality of sending live organisms through a digestive system designed to destroy them.*
->
-> *[BRAND INTRO, line 11 of 14]*
-> *Gut Balance doesn't send bacteria. It sends what your gut actually uses, the bioactive compounds bacteria produce, already active when you take them.*
-> *No survival gauntlet. No colonization battle.*
-> *Just the output your body should have been getting the whole time.*
+**BEAT 2 (emoji-led reveals, one line per screen):**
+> *Postbiotics are compounds your gut uses for exactly that:*
+> *😌 Lining support*
+> *🚽 Regularity*
+> *⚡ Steady energy*
 
-**HIGGSFIELD PROMPTS (4 silent B-roll clips, 9:16 vertical):**
+**BEAT 3 (product + close, the final beat, ~60-75% in):**
+> *Gut Balance packs three clinically studied ones into two capsules a day. Easy add.*
+
+**HIGGSFIELD PROMPTS (3-4 silent B-roll clips, 9:16 vertical, quiet and domestic):**
 
 ```
-1. "Shot on iPhone, candid. A hand opening a probiotic bottle on a kitchen
- counter, soft morning light, no face visible, only hands, 9:16 vertical,
- shallow depth of field. No text, no captions, no overlays, no graphics,
- no typography."
+1. "Shot on iPhone, candid. Hands stirring oatmeal in a cream stoneware
+ bowl, golden morning light through a kitchen window, slightly imperfect
+ framing, no faces visible, 9:16 vertical, shallow depth of field. No
+ text, no captions, no overlays, no graphics, no typography."
 
-2. "Shot on iPhone, candid. Three probiotic bottles lined up on a bathroom
- counter, casual arrangement, soft natural light, no face visible, 9:16
+2. "Shot on iPhone, candid. A small handful of pill capsules in an open
+ palm, kitchen counter background, soft morning light, no face, 9:16
  vertical. No text, no captions, no overlays, no graphics, no typography."
 
-3. "Shot on iPhone, candid. A woman's hands on a denim waistband at evening,
- trying to button the jeans, soft warm light, no face visible, close-up,
- 9:16 vertical. No text, no captions, no overlays, no graphics, no
- typography."
-
-4. "Shot on iPhone, candid. A kitchen counter at evening with a half-eaten
- dinner plate, low warm light, no people, contemplative mood, 9:16
+3. "Shot on iPhone, candid. Glass of water being filled at a kitchen sink,
+ midday natural light, slightly off-center composition, no faces, 9:16
  vertical. No text, no captions, no overlays, no graphics, no typography."
+
+4. "Shot on iPhone, candid. Amber glass supplement jar on a tidy kitchen
+ counter next to keys and a phone, evening light, no faces, 9:16 vertical.
+ No text, no captions, no overlays, no graphics, no typography."
 ```
 
 **WORKFLOW:**
@@ -171,9 +168,9 @@ Each recipe walkthrough below shows you exactly what the steps look like and wha
 
 ## Recipe 2: TikTok POV Short (`text-overlay-pov`)
 
-**What it makes:** A 5-second TikTok / Reel with ≤10 words of text on a locked-camera clip. The visual changes across cuts (anchor + variation). Fastest format to ship.
+**What it makes:** A 5-15 second TikTok / Reel: 1-2 lines TOPS over a candid clip of a real person in a mundane moment. The line is a meme-native identity flex borrowed from live feed formats (or a POV open); it never makes a product claim. Visual: single candid-motion clip OR locked-camera anchor + variation. Fastest format to ship.
 
-**When to use it:** The pain compresses into one painful sentence. Daily fill content. Top-of-funnel testing.
+**When to use it:** Daily fill + the messaging test bed. Winning lines graduate to love letters, creator briefs, and paid hooks. Line bank: `clients/secondkind-bold/copy/tiktok-pov-shorts.md`.
 
 **Tools:** Claude, Higgsfield, CapCut
 
@@ -185,65 +182,49 @@ Each recipe walkthrough below shows you exactly what the steps look like and wha
 4. **Assemble in CapCut**: cuts in sequence, text overlay LOCKED above
 5. **Export, post**
 
-### Example, `hook-003`: *"Look 3 months pregnant by 7pm? Stop blaming your food."*
+### Example: "Serving looks and a calm gut." (line 8 in the bank)
 
 **You type:**
-> *Use secondkind-bold-organic. Pull hook-003. Use text-overlay-pov.*
+> *Use secondkind-bold-organic. Pull a line from the POV bank. Use text-overlay-pov.*
 
 **Claude returns:**
 
-**THE POV TEXT (locked, never moves):**
-> *9am vs 7pm. same body. same food.*
+**THE LINE (locked, never moves):**
+> *Serving looks and a calm gut.*
 
-**THE VISUAL, anchor + variation:**
+**THE VISUAL, anchor + variation (two outfits = two days):**
 
 | Cut | Variation |
 |---|---|
-| 1 | Same mirror, woman in fitted tee at 9am (flat stomach visible) |
-| 2 | Same mirror, same woman at noon, slight puff |
-| 3 | Same mirror, 3pm, tee is tighter, more puff |
-| 4 | Same mirror, 5pm, hand on visibly distended stomach |
-| 5 | Same mirror, 7pm, switched into a loose shirt entirely |
+| 1 | Same desk, same framing: structured blazer, mid-typing, relaxed |
+| 2 | Same desk, same framing: colorful knit, different hair, sipping coffee |
 
 **HIGGSFIELD PROMPTS:**
 
 ```
 Anchor (generate ONCE, use as reference for all variations):
-"Shot on iPhone, candid. A woman in her late 30s in front of a bathroom
-mirror, fitted tee, framed at chest level showing torso (no face), soft
-morning light from one window, 9:16 vertical, slightly imperfect framing.
-No text, no captions, no overlays, no graphics, no typography."
+"Shot on iPhone, candid. A woman in her late 30s sitting at a desk on a
+video call, laptop open, natural window light, framed at chest level,
+home office setting, 9:16 vertical, slightly imperfect framing. No text,
+no captions, no overlays, no graphics, no typography."
 
-Cut 1 (9am):
-"Use the anchor as reference. Same mirror, same lighting. Woman in fitted
-tee, flat stomach, calm posture, morning light. No text, no captions, no
-overlays."
+Cut 1 (day one):
+"Use the anchor as reference. Same desk, same framing, same lighting. She
+wears a structured blazer over a white top, mid-typing, relaxed posture.
+No text, no captions, no overlays."
 
-Cut 2 (noon):
-"Use the anchor as reference. Same mirror, same lighting. Woman in same
-fitted tee, slight visible stomach puff, midday light. No text, no
-captions, no overlays."
-
-Cut 3 (3pm):
-"Use the anchor as reference. Same mirror, same lighting. Woman in same
-fitted tee, more visible distension, afternoon light. No text, no captions,
-no overlays."
-
-Cut 4 (5pm):
-"Use the anchor as reference. Same mirror, same lighting. Woman in same
-fitted tee, hand on visibly distended stomach, late afternoon light. No
-text, no captions, no overlays."
-
-Cut 5 (7pm):
-"Use the anchor as reference. Same mirror, but woman now in a loose
-oversized shirt, evening light. No text, no captions, no overlays."
+Cut 2 (day two):
+"Use the anchor as reference. Same desk, same framing, same lighting. She
+wears a colorful knit sweater, hair styled differently, holding a coffee
+mug. No text, no captions, no overlays."
 ```
 
+**Single-clip alternative (also sanctioned):** one candid clip with natural motion (typing, nodding on a call) carries lines like *"My safe order misses me."* with no cuts at all. Never use a frozen, motionless clip.
+
 **WORKFLOW:**
-1. Generate anchor
-2. Generate 5 variation cuts using anchor as reference
-3. CapCut: 5 cuts in sequence + locked text overlay above
-4. Export 9:16
+1. Generate anchor, then variation cut(s) using anchor as reference (or animate one candid clip)
+2. CapCut: cuts in sequence + locked text overlay above
+3. Export 9:16
 
 **Critical:** Static clip + text doesn't stop the scroll. The variation pattern is the format.
 

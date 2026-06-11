@@ -92,14 +92,31 @@ Women 28-50, but male reviewers present. Health-conscious, supplement-fluent, ex
 - Doctor endorsements: Dr. Zachary Schwartz (Family Medicine), Dr. Nancy Lin (PhD, Holistic Nutritionist), Dr. Stuart Weinberger (Gastroenterologist), Dr. Hyun Dong Shin (PhD, Microbiologist)
 - 60-day money-back guarantee
 
+## The culture layer (added 2026-06-10): organic runs at T2 license
+
+Everything this skill produces is a T2 (organic) or T1 (comment) surface, which carries more license than the paid rulebook. The live culture layer is maintained in the AdCreatives repo at `clients/secondkind-bold/culture/` (pulse-*.md, vocabulary.yaml, bold-bets.md, refreshed biweekly via the `culture-pulse` skill); if you can read it, load it before writing. If you can't, apply the standing flexes below and treat any cultural reference older than 30 days as expired (say so rather than guessing).
+
+**Standing T1-T2 flexes** (from the 2026-06-10 guidelines audit; FDA claims rules and the side-with-her identity rules still apply everywhere, in full):
+
+- **Pride is not shame.** The hot-girls-with-IBS reclamation register is open for Danielle and Paula ("hot girls know which bathrooms to trust"). Shame stays banned. Never Natalie.
+- **Questions are allowed** in captions, engagement prompts, and replies. Confession prompts drive the early comment density the algorithm rewards.
+- **Comment-native emoji are vocabulary here:** 💀 (too real), 😭 (dramatic relatable), 🙏 (sparingly, replies only).
+- **Receipts move one tap away.** A joke doesn't need a citation in-frame; put the trial in the pinned comment or caption.
+- **Ironic quotation of wellness-speak is allowed as mockery** ("your gut journey," eye roll). Sincere use stays banned.
+- **The second enemy:** indict the guttok hack economy too ("no ginger shot is coming to save you"). Mock the hacks, never the people doing them. Still never name competitor brands; if a commenter names one first, answer honestly and mechanism-first.
+- **Cultural urgency is fine** ("this sound dies Friday"); offer urgency stays banned.
+- **First-60-minute comment protocol:** reply to at least 5 early comments on every post, in the group-chat register. Pin a punchline or the receipt.
+
+**Fast-lane gate before shipping anything bold (six questions, minutes):** claims clean? cut lands on category/mechanism/us? two live cultural signals? would she share it or dunk on it? low-blast-radius surface? kill date and metric named? Six yes = ship.
+
 ## The frame × recipe model (organic-formats core)
 
 For any matrix entry, pick **one frame** (story/structure) and **one recipe** (production method). Sometimes the recipe IS the format (love letter, "we're not [X]"). Sometimes a frame anchors and the recipe rotates.
 
 | Recipe | Output | Lift | Best for SecondKind Bold |
 |---|---|---|---|
-| `text-overlay-monologue` | video | low | Problem-aware Danielle, long PASTOR copy already in matrix |
-| `text-overlay-pov` | video | very_low | Single-sentence pain. Locked camera + anchor + variation pattern (NEVER static clip) |
+| `text-overlay-monologue` | video | low | Surprising-fact education, 35-75 words / 3 beats; identity opens ("hot girls") for Danielle and Paula |
+| `text-overlay-pov` | video | very_low | 1-2 line flex or POV borrowed from live feed formats. Candid motion or anchor + variation (never a dead clip). The line test bed. |
 | `david-goliath-no-intro` | video or carousel | medium | Probiotic industry as Goliath. Carousel fallback if no founder footage |
 | `pixar-ai-slop` | video or images | medium | Personifying bacteria, the gut, the probiotic that didn't survive. VA needs VFX skill |
 | `not-x-objection` | image or short video | very_low | *"We're not probiotics. We don't want to be."*, the canonical SecondKind execution |
@@ -141,13 +158,18 @@ The SecondKind brand does NOT appear early. It earns its reveal:
 
 If a piece introduces the brand in the first 30%, it stops being organic. Re-pick or restructure.
 
-## The anchor + variation rule (POV shorts ONLY)
+## The anchor + variation rule (POV shorts ONLY; refined 2026-06-11)
 
-For `text-overlay-pov`, never recommend a static clip with text overlay. The format requires:
-- **Camera locked.** Same frame across all cuts.
-- **One element changes** across 3-5 cuts (outfits, products, body language, props, dates).
-- **Text overlay stays static.**
-- The variation IS the format. It creates the scroll-stop.
+For `text-overlay-pov`, never recommend a DEAD static clip with text overlay. Two sanctioned visuals:
+
+1. **Single candid clip with natural human motion** (operator example: a person at a desk on a Zoom call). The aliveness of the moment carries it; the line does the work.
+2. **Anchor + variation (the stronger default):**
+   - **Camera locked.** Same frame across all cuts.
+   - **One element changes** across 2-5 cuts (outfits = different days, products, body language, props, dates).
+   - **Text overlay stays static.**
+   - The variation creates the scroll-stop.
+
+What stays banned: a frozen, motionless clip with a caption on it. If nothing in the frame is alive, it scrolls past.
 
 Reference: Dara Denny's *"serving looks and spreadsheets"*, same desk anchor, different outfits, text locked.
 
@@ -236,10 +258,10 @@ Every Higgsfield image prompt MUST include both:
 This skill does not say *"use a love letter format."* It says:
 
 > **Recipe:** TikTok Love Letter
-> **Headline:** *"Listen, girls who eat clean all day and still bloat by 7pm…"*
-> **Body:** [actual 200-word monologue using the matrix entry's positioning angle]
+> **Opener:** *"Girls, your gut lining rebuilds itself about every week."*
+> **Body:** [35-75 word, 3-beat letter: callout + hedged fact → emoji-led "supports" lines → product named once + easy close]
 > **Visual:** AI B-roll of [specific scene]. If unavailable, stock footage tagged [specific tag].
-> **Brand-intro point:** line 11 of 14.
+> **Brand-intro point:** final beat (~60-75% in).
 > **Production:** [tool chain] →
 
 The VA reads it and ships it. No interpretation step.
@@ -267,7 +289,7 @@ THE CONTENT
  Headline / opener:
  "<actual text>"
  Body / monologue / slide copy:
- <actual text in SecondKind Bold voice, confrontational, declarative, receipts-next-line>
+ <actual text in SecondKind Bold voice; register per recipe (love letter = light, warm, educational; expose/confession recipes = confrontational, receipts-next-line)>
  Visual direction:
  Primary: <specific asset description>
  Fallback if primary unavailable: <specific asset>
