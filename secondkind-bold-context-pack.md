@@ -7988,6 +7988,18 @@ These are not required, the methodology above stands on its own. But if availabl
 
 ---
 
+## The restoration platform: "Meet the second kind of you" (added 2026-06-11, operator-approved)
+
+The brand's SECOND first-class messaging platform, alongside the vindication arc. Restoration, never transformation (those words stay banned): every persona says "I just want to feel like myself again," and the mission statement already promises it. The person she was ten years ago is not gone, she is under-supplied. Two kinds of you: the one managing a body and the one who never had to. We make the second kind possible again.
+
+**The licensing receipt:** the Bereum 84-day study measured GI symptoms, perceived stress, AND quality of life. Lifestyle claims ride on that citation.
+
+**The arc:** name the dimming (the safe order, the early exit, the 2pm fade) → the mechanism (your gut makes the compounds that run digestion, energy, calm; when it makes less, everything dims) → the return (compounds delivered directly + the 84-day receipt) → the Full 90 ask ("the longest trial ran 84 days, we round up"; 60-day guarantee covers the first two months; sells as subscription, single-bottle guarantee rule).
+
+**Canonical lines:** "Meet the second kind of you." / "You don't miss being 28. You miss a body that didn't need managing." / "She's not gone. She's under-supplied." / "It was never just your gut. That's the point." / "Three months. Then judge." / "Finished the coffee. Took the meeting. Forgot to worry." / "The cheap option is only cheap if it works."
+
+**Placement:** restoration owns the main site, warm audiences, and retargeting; cold only in specific-moment executions. Vindication remains the cold workhorse. Sequence: vindication cold → restoration retarget → Full 90 close.
+
 ## Operating rules
 
 **Scope note (2026-06-11):** these rules apply at full strength on paid surfaces (hooks, statics, LPs). On comments and organic TikTok/Reels, sanctioned flexes exist: questions allowed, comment-native emoji allowed, receipts may move to the pinned comment, pride/solidarity framing encouraged for Danielle and Paula (shame stays banned), and ironic quotation of wellness-speak is allowed as category mockery. The claims rules (FDA) and identity rules (the cut never lands on her) are absolute everywhere.
