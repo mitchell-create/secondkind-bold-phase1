@@ -56,9 +56,10 @@ _SOCIAL_PROOF = re.compile(
     r"(?:\b(?:our|the)|'s)\s+(?:[\w-]+\s+){0,2}(?:members?|clients?|customers?|cohort|community)\b"
     # "1,200+ members", "300 women"
     r"|\b\d[\d,]*\+?\s+(?:members|clients|customers|women|men|people|reviews)\b"
-    # "members who have", "cohort who moved fastest saw", "women that reported"
+    # "cohort who moved fastest saw", "women that reported", "clients who lost".
+    # Result verbs only: "people who have never explained" is not proof.
     r"|\b(?:members|clients|customers|cohort|women|men|people)\s+(?:who|that)\s+"
-    r"(?:[\w-]+\s+){0,3}(?:have|has|saw|see|got|lost|gained|joined|reported|improved|dropped)\b"
+    r"(?:[\w-]+\s+){0,3}(?:saw|got|lost|gained|joined|reported|improved|dropped|achieved)\b"
     # "92% of members"
     r"|\b\d{1,3}\s?%\s+of\s+(?:members|clients|customers|women|men|people)"
     r"|\b(?:rated|testimonials?|satisfaction\s+rate|success\s+rate|reviews?)\b"

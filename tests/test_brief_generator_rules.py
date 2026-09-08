@@ -14,7 +14,11 @@ from strategy.brief_generator import _competitor_names, _social_proof_available
 
 
 def _product(**overrides) -> Product:
-    fields = dict(name="Membership", description="One set, twice a week.")
+    fields = dict(
+        name="Membership",
+        description="One set, twice a week.",
+        benefits=["measured strength"],
+    )
     fields.update(overrides)
     return Product(**fields)
 

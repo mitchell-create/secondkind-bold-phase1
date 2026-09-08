@@ -77,6 +77,12 @@ def test_social_proof_claims_flagged_only_when_brand_has_none():
     assert RULE_FABRICATED_PROOF in _rules(brief, social_proof_available=False)
     assert RULE_FABRICATED_PROOF not in _rules(brief, social_proof_available=True)
     assert RULE_FABRICATED_PROOF in _rules(_brief(cta="Join 1,200+ members"), social_proof_available=False)
+    assert RULE_FABRICATED_PROOF in _rules(_brief(hook="Clients who joined in January lost the shuffle."), social_proof_available=False)
+    # Plain narration about people is not a results claim (false positive on the OnCore run).
+    assert RULE_FABRICATED_PROOF not in _rules(
+        _brief(hook="A gym staffed by people who have never explained why your body changed."),
+        social_proof_available=False,
+    )
 
 
 def test_statistics_need_proof_but_product_facts_do_not():
