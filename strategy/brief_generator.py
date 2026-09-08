@@ -105,6 +105,20 @@ def _competitor_names(client_slug: str) -> list[str]:
         return []
 
 
+def _social_proof_available(brand: Brand, product: Product) -> bool:
+    """True when either the product or the brand carries usable social proof.
+
+    Product has a `social_proof` field; Brand does not (brand.yaml may still
+    carry the key as extra data, so read it defensively). A pre-launch brand
+    with nothing here gets the "no social proof" rule in the angle prompt and
+    the fabricated-proof check on output.
+    """
+    if any(str(s).strip() for s in (product.social_proof or [])):
+        return True
+    brand_proof = getattr(brand, "social_proof", None) or []
+    return any(str(s).strip() for s in brand_proof)
+
+
 def _load_competitive_gaps(client_slug: str) -> dict | None:
     """Load competitive-gaps.yaml if it exists. Returns None if missing or empty."""
     from pathlib import Path
@@ -201,7 +215,7 @@ def generate_briefs(
         )
 
     competitor_names = _competitor_names(client_slug)
-    social_proof_available = bool(brand.social_proof or product.social_proof)
+    social_proof_available = _social_proof_available(brand, product)
 
     angles = generate_angles(
         product=product,
