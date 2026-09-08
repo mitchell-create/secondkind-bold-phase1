@@ -201,6 +201,14 @@ class CreativeBrief(BaseModel):
         description="What inspired this brief: 'voc_mining', 'competitor_analysis', "
         "'winning_pattern', 'manual'",
     )
+    compliance_flags: list[str] = Field(
+        default_factory=list,
+        description="Copy-rule violations found by validators/copy_rules.py at "
+        "generation time (em-dashes, competitor named, second-person age or "
+        "health callout, social proof for a brand that has none, unsourced "
+        "statistic, prohibited term). Empty means the customer-facing copy "
+        "passed. `adc brief --strict` refuses to save a flagged brief.",
+    )
     campaign_name: str = Field(
         default="",
         description="Meta ad campaign name built via strategy/naming.py. "

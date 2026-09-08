@@ -276,3 +276,33 @@ class TestBuildMentalStageBlock:
         assert "event #5" in block
         assert "event #6" not in block
         assert "event #11" not in block
+
+
+# ─── Copy rules block ───────────────────────────────────────────────────────
+
+
+def test_copy_rules_block_always_bans_dashes_and_personal_attributes():
+    from strategy.angle_multiplier import build_copy_rules_block
+
+    block = build_copy_rules_block(
+        competitor_names=[], social_proof_available=True, platform="meta",
+    )
+    assert block.startswith("COPY RULES")
+    assert "dash" in block.lower()
+    assert "age" in block.lower() and "health" in block.lower()
+    assert "social proof" not in block.lower()
+
+
+def test_copy_rules_block_names_competitors_and_social_proof_gap():
+    from strategy.angle_multiplier import build_copy_rules_block
+
+    block = build_copy_rules_block(
+        competitor_names=["Orangetheory Fitness", "GoodLife Fitness"],
+        social_proof_available=False,
+        platform="meta",
+        prohibited_terms=["revolutionary"],
+    )
+    assert "Orangetheory Fitness" in block and "GoodLife Fitness" in block
+    assert "no usable social proof" in block.lower()
+    assert "revolutionary" in block
+    assert "statistic" in block.lower()

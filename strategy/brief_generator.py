@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from pathlib import Path
 import secrets
 from datetime import datetime
 
@@ -90,6 +91,18 @@ def _make_brief_id(client: str, product: str, index: int, *, avatar: str = "") -
     seed = f"{client}-{product}-{avatar}-{ts}-{index}-{nonce}"
     short_hash = hashlib.sha256(seed.encode()).hexdigest()[:6]
     return f"{client}-{product}-{short_hash}"
+
+
+def _competitor_names(client_slug: str) -> list[str]:
+    """Names from clients/<slug>/competitors.yaml, for the never-name rule."""
+    path = Path("clients") / client_slug / "competitors.yaml"
+    if not path.exists():
+        return []
+    try:
+        from strategy.competitor_research import load_competitors
+        return [c.name for c in load_competitors(client_slug) if c.name]
+    except Exception:  # noqa: BLE001 - a malformed file must not block brief generation
+        return []
 
 
 def _load_competitive_gaps(client_slug: str) -> dict | None:
@@ -187,6 +200,9 @@ def generate_briefs(
             f"mental_stages length ({len(mental_stages)}) must match count ({count})."
         )
 
+    competitor_names = _competitor_names(client_slug)
+    social_proof_available = bool(brand.social_proof or product.social_proof)
+
     angles = generate_angles(
         product=product,
         avatar=avatar,
@@ -200,6 +216,9 @@ def generate_briefs(
         voice=voice,
         use_voice=use_voice,
         catalog=catalog,
+        competitor_names=competitor_names,
+        social_proof_available=social_proof_available,
+        platform=platform,
     )
 
     briefs = []
@@ -281,6 +300,18 @@ def generate_briefs(
             source_insight="angle_multiplier",
         )
         briefs.append(brief)
+
+    # Copy rules the prompt already stated, checked on what came back. Flags
+    # are saved with the brief so the operator sees which field broke which
+    # rule; `adc brief --strict` refuses to save flagged briefs.
+    from validators.copy_rules import check_brief_copy, flag_strings
+    for b in briefs:
+        b.compliance_flags = flag_strings(check_brief_copy(
+            b,
+            competitor_names=competitor_names,
+            social_proof_available=social_proof_available,
+            prohibited_terms=brand.prohibited_terms,
+        ))
 
     # Trending format recommendations (top 3) per brief — purely
     # informational, attached to each brief. Safe-fails to empty list if the
