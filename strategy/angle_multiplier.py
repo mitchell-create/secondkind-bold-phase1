@@ -369,6 +369,7 @@ CUSTOMER AVATAR:
 BRAND TONE: {brand_tone}
 MESSAGING APPROACH: {approach}
 {prohibited_block}
+{copy_rules_block}
 {competitive_gaps_section}
 {catalog_block}
 For each angle, return:
@@ -504,6 +505,51 @@ def _format_competitive_gaps(gaps_data: dict | None) -> str:
     return "\n".join(parts)
 
 
+def build_copy_rules_block(
+    *,
+    competitor_names: list[str] | None,
+    social_proof_available: bool,
+    platform: str = "meta",
+    prohibited_terms: list[str] | None = None,
+) -> str:
+    """Hard copy rules the model must obey in every customer-facing field.
+
+    Mirrors validators/copy_rules.py, which checks the output. Both exist
+    because prose rules get ignored: on the OnCore run every brief carried
+    15-20 em-dashes, one invented a member cohort for a pre-launch brand, one
+    addressed the reader by age, and one named a competitor in visual
+    direction.
+    """
+    platform_name = {"meta": "Meta", "tiktok": "TikTok"}.get(platform.lower(), platform)
+    lines = [
+        "COPY RULES (HARD CONSTRAINTS - a violating angle is rejected):",
+        "- No em-dashes or en-dashes anywhere in hook, benefit_callouts, cta, "
+        "body copy or visual_direction. Use a period, comma or colon instead.",
+        f"- {platform_name} rejects ads that imply knowledge of the viewer's age "
+        "or health condition. Never address the reader by age or condition "
+        "('if you're over 45', 'you have menopause'). Speak in third person, "
+        "about the category, or about a named character.",
+        "- Every statistic (a percentage, a rate, 'X years older', 'up to N') "
+        "must come from the PRODUCT facts above. If it is not there, leave it "
+        "out. Never invent numbers.",
+    ]
+    if competitor_names:
+        lines.append(
+            "- Never name a competitor in any customer-facing field, including "
+            f"visual_direction: {', '.join(competitor_names)}. Abstract to the "
+            "category or the mechanism ('most gyms', 'high-intensity classes')."
+        )
+    if not social_proof_available:
+        lines.append(
+            "- This brand has NO usable social proof yet. Do not invent members, "
+            "cohorts, clients, reviews, ratings, satisfaction rates or results "
+            "anyone has seen. Lead with mechanism, measurement and the guarantee."
+        )
+    if prohibited_terms:
+        lines.append(f"- Prohibited terms: {', '.join(prohibited_terms)}.")
+    return "\n".join(lines)
+
+
 def generate_angles(
     product: Product,
     avatar: CustomerAvatar,
@@ -517,6 +563,9 @@ def generate_angles(
     voice: dict | None = None,
     use_voice: bool = True,
     catalog: dict | None = None,
+    competitor_names: list[str] | None = None,
+    social_proof_available: bool = True,
+    platform: str = "meta",
 ) -> list[dict]:
     """Generate multiple messaging angles for a product/avatar combo.
 
@@ -610,6 +659,12 @@ def generate_angles(
             "angle, copy line, or visual direction, even inside customer "
             f"quotes (paraphrase around them): {', '.join(brand.prohibited_terms)}"
             if brand.prohibited_terms else ""
+        ),
+        copy_rules_block=build_copy_rules_block(
+            competitor_names=competitor_names,
+            social_proof_available=social_proof_available,
+            platform=platform,
+            prohibited_terms=brand.prohibited_terms,
         ),
         competitive_gaps_section=_format_competitive_gaps(competitive_gaps),
         voice_block=voice_block,

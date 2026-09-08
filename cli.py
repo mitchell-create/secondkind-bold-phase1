@@ -1671,6 +1671,14 @@ def research(client: str, url: str, max_products: int, auto: bool):
     help="Skip the trending-format recommender. By default, every brief gets "
     "top-3 trending alternatives attached (from trending_formats.yaml).",
 )
+@click.option(
+    "--strict",
+    is_flag=True,
+    default=False,
+    help="Refuse to save any brief that breaks a copy rule (em-dash, competitor "
+    "named, second-person age/health callout, social proof for a brand that "
+    "has none, unsourced statistic, prohibited term). Default: save and flag.",
+)
 def brief(
     client: str,
     product: str,
@@ -1680,6 +1688,7 @@ def brief(
     ignore_psychology: bool,
     ignore_voice: bool,
     no_trending: bool,
+    strict: bool,
 ):
     """Generate creative briefs with messaging angles for a product.
 
@@ -1818,12 +1827,36 @@ def brief(
     table.add_column("Framework", style="yellow")
     table.add_column("Brief ID", style="dim")
 
+    flagged = [b for b in briefs if b.compliance_flags]
+    saved = 0
     for i, b in enumerate(briefs, 1):
+        if strict and b.compliance_flags:
+            continue
         save_brief(client, b)
+        saved += 1
         table.add_row(str(i), b.persona or "—", b.hook, b.angle, b.framework.value, b.brief_id)
 
     console.print(table)
-    console.print(f"\n[green]Saved {len(briefs)} briefs to clients/{client}/briefs/[/green]")
+    if flagged:
+        flag_table = Table(title="Copy rule violations", style="red")
+        flag_table.add_column("Brief ID", style="dim")
+        flag_table.add_column("Violation", style="red")
+        for b in flagged:
+            for flag in b.compliance_flags:
+                flag_table.add_row(b.brief_id, flag)
+        console.print(flag_table)
+        if strict:
+            console.print(
+                f"[red]--strict: {len(flagged)} flagged brief(s) not saved. "
+                "Regenerate or relax the rule that fired.[/red]"
+            )
+        else:
+            console.print(
+                f"[yellow]{len(flagged)} brief(s) saved WITH flags (see "
+                "compliance_flags in each YAML). Fix the copy before production, "
+                "or rerun with --strict.[/yellow]"
+            )
+    console.print(f"\n[green]Saved {saved} briefs to clients/{client}/briefs/[/green]")
     console.print(f"\n[green]Next:[/green] adc menu --client {client}")
 
     from strategy.cost_tracker import log_cost
