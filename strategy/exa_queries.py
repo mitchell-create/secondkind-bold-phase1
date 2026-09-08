@@ -59,7 +59,13 @@ def default_queries_for_brand(
     competitors: list[str] | None = None,
     category_terms: list[str] | None = None,
 ) -> list[ExaQuery]:
-    """Starter set of queries for any brand. Returns ~7-10 queries.
+    """Category-neutral starter set. Returns ~7-10 queries.
+
+    This is the FALLBACK. It knows nothing about the business, so it only asks
+    questions that make sense for any brand (concerns, value, first-time
+    experience). For a run that reflects what this market actually argues
+    about, generate a plan with strategy.exa_query_plan and pass
+    queries_from_plan(...) to run_research_bundle.
 
     Expand with competitor list when you have one — adds N*2 more queries.
     """
@@ -85,13 +91,13 @@ def default_queries_for_brand(
             category="reviews",
         ),
         ExaQuery(
-            label=f"web-{brand_name}-taste-review",
-            query=f"{brand_name} taste review what does it taste like",
+            label=f"web-{brand_name}-worth-it",
+            query=f"is {brand_name} worth it price value review",
             category="reviews",
         ),
         ExaQuery(
-            label=f"web-{brand_name}-ingredients",
-            query=f"{brand_name} ingredients what's in it explained",
+            label=f"web-{brand_name}-experience",
+            query=f"{brand_name} what to expect first time experience",
             category="reviews",
         ),
     ]
@@ -115,9 +121,10 @@ def default_queries_for_brand(
         for term in category_terms:
             queries.append(ExaQuery(
                 label=f"reddit-category-{slugify(term)}",
-                query=f"best {term} reddit recommendation",
+                query=f"{term} reddit discussion experiences",
                 include_domains=["reddit.com"],
                 category="category-discussion",
+                keyword_query=term,
             ))
 
     return queries

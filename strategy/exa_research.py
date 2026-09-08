@@ -48,6 +48,7 @@ __all__ = [
     "load_cached",
     "run_query",
     "run_research_bundle",
+    "write_reddit_voc_dump",
 ]
 
 CLIENTS_DIR = Path("clients")
@@ -70,6 +71,9 @@ class ExaQueryResult:
     query: ExaQuery
     fetched_at: str
     results: list[ExaHit]
+    # Set by run_research_bundle when the query failed (persisted separately
+    # under research/exa/errors/); never written into the raw cache.
+    error: str | None = None
 
     def to_json(self) -> dict:
         return {
@@ -89,6 +93,36 @@ def _get_client() -> Exa:
 def _domain_of(url: str) -> str:
     m = re.search(r"https?://(?:www\.)?([^/]+)", url or "")
     return m.group(1) if m else ""
+
+
+def _reddit_fallback(
+    query: ExaQuery,
+    content_chars: int,
+    cause: Exception,
+) -> ExaQueryResult:
+    """Exa dropped reddit.com from its index (Reddit licensing lockdown).
+
+    Chain: official Reddit API -> Apify actor bridge -> combined error. Called
+    when Exa refuses the domain outright AND when it answers a reddit-scoped
+    query with an empty success (its current behavior, 2026-09). Before the
+    second trigger existed every reddit query silently cached zero hits and
+    no tier ever ran.
+    """
+    from strategy.reddit_research import RedditAuthError, run_reddit_query
+
+    try:
+        return run_reddit_query(query, content_chars=content_chars)
+    except RedditAuthError as reddit_err:
+        from strategy.apify_reddit import ApifyRedditError, run_reddit_query_via_apify
+
+        try:
+            return run_reddit_query_via_apify(query, content_chars=content_chars)
+        except ApifyRedditError as apify_err:
+            raise RuntimeError(
+                "Exa no longer serves reddit.com; Reddit API fallback "
+                f"unusable ({reddit_err}); Apify bridge unusable "
+                f"({apify_err})"
+            ) from cause
 
 
 def run_query(
@@ -125,29 +159,14 @@ def run_query(
         if reddit_scoped and (
             "SOURCE_NOT_AVAILABLE" in message or "domains are not available" in message
         ):
-            # Exa dropped reddit.com from its index (Reddit licensing lockdown).
-            # Chain: official Reddit API -> Apify actor bridge -> persisted error.
-            from strategy.reddit_research import RedditAuthError, run_reddit_query
-
-            try:
-                return run_reddit_query(query, content_chars=content_chars)
-            except RedditAuthError as reddit_err:
-                from strategy.apify_reddit import (
-                    ApifyRedditError,
-                    run_reddit_query_via_apify,
-                )
-
-                try:
-                    return run_reddit_query_via_apify(
-                        query, content_chars=content_chars
-                    )
-                except ApifyRedditError as apify_err:
-                    raise RuntimeError(
-                        "Exa no longer serves reddit.com; Reddit API fallback "
-                        f"unusable ({reddit_err}); Apify bridge unusable "
-                        f"({apify_err})"
-                    ) from e
+            return _reddit_fallback(query, content_chars, cause=e)
         raise
+
+    if reddit_scoped and not response.results:
+        return _reddit_fallback(
+            query, content_chars,
+            cause=RuntimeError("Exa returned 0 results for a reddit.com-scoped query"),
+        )
 
     hits: list[ExaHit] = []
     for r in response.results:
@@ -221,13 +240,22 @@ def run_research_bundle(
     competitors: list[str] | None = None,
     category_terms: list[str] | None = None,
     skip_cached: bool = True,
+    queries: list[ExaQuery] | None = None,
 ) -> list[ExaQueryResult]:
-    """Run all default queries for a brand and cache each result.
+    """Run a query set for a brand and cache each result.
+
+    `queries` defaults to the category-neutral starter set; pass the output of
+    strategy.exa_query_plan.queries_from_plan for a business-specific run.
 
     If skip_cached is True (default), queries whose cache file already exists
     are skipped — re-running is free until the cache is cleared.
+
+    A query that raises is recorded under research/exa/errors/ and returned
+    with `error` set and no hits, so one dead source cannot abort the bundle
+    and `adc status` can point at the failure record.
     """
-    queries = default_queries_for_brand(brand_name, competitors, category_terms)
+    if queries is None:
+        queries = default_queries_for_brand(brand_name, competitors, category_terms)
     cache_dir = CLIENTS_DIR / client_slug / "research" / "exa" / "raw"
 
     all_results: list[ExaQueryResult] = []
@@ -243,8 +271,57 @@ def run_research_bundle(
                 results=results,
             ))
             continue
-        result = run_query(q)
+        try:
+            result = run_query(q)
+        except Exception as e:  # noqa: BLE001 - one dead source must not abort the run
+            cache_error(client_slug, q, e)
+            all_results.append(ExaQueryResult(
+                query=q,
+                fetched_at=datetime.utcnow().isoformat() + "Z",
+                results=[],
+                error=str(e),
+            ))
+            continue
         cache_result(client_slug, result)
         all_results.append(result)
 
     return all_results
+
+
+REDDIT_VOC_FILENAME = "reddit-threads.json"
+
+
+def write_reddit_voc_dump(
+    client_slug: str,
+    results: list[ExaQueryResult],
+) -> tuple[Path | None, int]:
+    """Mirror reddit-scoped hits into clients/<slug>/voc/ for `adc mine-voc`.
+
+    The VOC miner only reads voc/*.json|txt, so without this dump Reddit
+    threads reach the gap analyzer but never the extracted pains. Same list
+    shape research-social writes: [{rating, body, ...}]. Returns (path, n);
+    (None, 0) when there were no reddit hits.
+    """
+    seen: set[str] = set()
+    rows: list[dict] = []
+    for r in results:
+        if "reddit.com" not in (r.query.include_domains or []):
+            continue
+        for hit in r.results:
+            if hit.url in seen or not hit.text.strip():
+                continue
+            seen.add(hit.url)
+            rows.append({
+                "rating": None,
+                "title": hit.title,
+                "body": hit.text,
+                "source": hit.url,
+                "query_label": r.query.label,
+            })
+    if not rows:
+        return None, 0
+    out_dir = CLIENTS_DIR / client_slug / "voc"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / REDDIT_VOC_FILENAME
+    path.write_text(json.dumps(rows, indent=2, ensure_ascii=False), encoding="utf-8")
+    return path, len(rows)
