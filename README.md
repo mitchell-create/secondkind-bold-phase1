@@ -1,77 +1,220 @@
-# SecondKind Bold — Phase 1 Creative Strategy
+# AdCreatives
 
-A self-contained creative-strategy engine, pre-loaded with the full **SecondKind Bold** strategy. It turns brand research into personas, offers, a messaging strategy matrix, a brand voice with a bank of "unspoken truths," and ready-to-shoot creative briefs — and gives you a local dashboard to explore all of it.
+AI-powered ad creative generation for Meta and TikTok. Combines psychological messaging strategy with AI image generation to produce ads that convert.
 
-Everything for SecondKind Bold is already generated and committed, so you can open the dashboard and read it immediately. The commands let you regenerate, extend, and tinker.
+## Architecture
 
-## What's inside
+```
+Strategy Layer          →  Generation Layer  →  Validation Layer
+(what to say & why)        (visual execution)    (quality gates)
 
-- **Research** — brand context, products, competitors, and a gap analysis
-- **Personas** — 6 customer avatars, each with a psychology profile
-- **Offers** — existing offers found on-site plus suggested new ones
-- **Strategy matrix** — a persona × awareness-stage messaging map
-- **Voice** — the brand's ownable voice and a persona-tagged bank of *unspoken truths* (each line is a ready-made hook)
-- **Briefs** — creative briefs whose hooks pull from the voice bank
-- **Dashboard** — a local web app to view all of the above
+• VOC Mining               • Prompt Composer      • Brand Compliance
+• Schwartz Awareness       • fal.ai Client        • Platform Specs
+• Angle Multiplier         • Reference Analyzer   • Copy char limits
+• Brief Generator          • Platform Adapter     • Legal/Compliance
+• Pattern Learner                                 • Performance Loop
+• Matrix Builder
+```
 
-## Setup
+The strategy layer loads markdown skills from [prompts/skills/](prompts/skills/) as
+LLM system context. Each skill carries an attribution header — see
+[Skill provenance](#skill-provenance) below.
 
-Requires Python 3.11+.
+> **Read first:** [docs/pipeline-rules.md](docs/pipeline-rules.md) — operating rules
+> for how to run the pipeline (one product per run for multi-SKU brands, persona
+> awareness calibration, gap-map filters, no-competitor-naming, etc.). These
+> encode hard-won lessons and should not be relaxed without explicit discussion.
+
+## Quick Start
 
 ```bash
-# 1. Create and activate a virtual environment
-python -m venv .venv
-# Windows:
-.venv\Scripts\activate
-# macOS / Linux:
-source .venv/bin/activate
-
-# 2. Install
+# Install
 pip install -e .
 
-# 3. (Optional) Add an API key — only needed for the scripted `adc` generation commands
-cp .env.example .env        # Windows: copy .env.example .env
-# then edit .env and set ANTHROPIC_API_KEY
+# Copy .env.example to .env and add your API keys
+cp .env.example .env
+
+# Create your first client
+adc init-client --name my-client
+
+# Edit the brand profile
+# → clients/my-client/brand.yaml
+
+# Add a product
+# → clients/my-client/products/my-product.yaml
+
+# Add customer reviews for VOC mining (optional but recommended)
+# → clients/my-client/voc/amazon_reviews.json
+
+# Mine voice of customer
+adc mine-voc --client my-client --category saas
+
+# Generate creative briefs (messaging strategy)
+adc brief --client my-client --product my-product --angles 5
+
+# Generate images from a brief + style
+adc generate --client my-client --product my-product --style benefit-callout
+
+# Or generate from a reference image
+adc generate --client my-client --product my-product --style product-hero --reference ./competitor-ad.png
+
+# Log results for the feedback loop
+adc log-result --client my-client --creative-id ad_001 --ctr 2.3 --verdict winner --notes "callouts worked"
+
+# Analyze what's working
+adc analyze-results --client my-client --days 90
+
+# Check compliance
+adc check-compliance --text "Guaranteed to cure your problems!" --category general supplements
+
+# Validate an image
+adc validate --image output/my-client/ad.png --client my-client --platform meta
+
+# List available styles
+adc list-styles
+
+# Creative matrix testing
+adc matrix --client my-client --product my-product --hooks "pain-number,question,shock" --styles "benefit-callout,lifestyle-ugc" --platforms "meta,tiktok"
 ```
 
-**You need no API key to view the strategy** — the dashboard just reads local files. A key is only needed to *generate new work* (briefs, voice, matrix), and you have two ways to do that, including a key-free one — see "Generating new work" below. The other keys in `.env.example` are only for re-running web research from scratch.
+## Workflow
 
-## View the dashboard
+### 1. Onboard Client
+Create brand profile (colors, fonts, tone, audience), add products, add customer reviews.
+
+### 2. Strategy (what to say)
+- **VOC Mining**: Extract pain points and exact customer language from reviews
+- **Awareness Mapping**: Determine where your audience sits on Schwartz's spectrum
+- **Brief Generation**: AI creates messaging angles with hooks, callouts, and visual direction
+
+### 3. Generate (visual execution)
+- Pick a style template (product-hero, benefit-callout, lifestyle-ugc, split-comparison, social-proof)
+- Composer merges brief + brand + style into a fal.ai prompt
+- Platform adapter adjusts for Meta (polished) vs TikTok (authentic)
+
+### 4. Validate & Ship
+- Compliance scanner checks for prohibited claims
+- Platform checker verifies sizes and specs
+- Brand checker confirms color accuracy
+
+### 5. Learn & Iterate
+- Log performance data (CTR, CPA, ROAS)
+- Pattern learner identifies what works
+- Next batch of briefs is informed by real performance data
+
+## Available Styles
+
+| Style | Best For | Description |
+|-------|----------|-------------|
+| `product-hero` | Product/Most Aware | Clean product shot, minimal text |
+| `benefit-callout` | Solution/Product Aware | Product + 3 benefit callouts |
+| `lifestyle-ugc` | Problem/Solution Aware | Person using product naturally |
+| `split-comparison` | Problem Aware/Unaware | Before/after split screen |
+| `social-proof` | Solution/Product Aware | Reviews and trust elements |
+
+## Copy Frameworks
+
+| Framework | Best For | Structure |
+|-----------|----------|-----------|
+| PAS | Problem Aware | Problem → Agitation → Solution |
+| AIDA | Broad | Attention → Interest → Desire → Action |
+| BAB | Transformation | Before → After → Bridge |
+| FAB | Features | Features → Advantages → Benefits |
+| SLAP | Most Aware | Stop → Look → Act → Purchase |
+
+## Hook Diversity Matrix
+
+The angle multiplier enforces one hook per emotional trigger so generated sets
+vary across cognitive levers, not just phrasing.
+
+| Slot | Hook Type | Trigger |
+|---|---|---|
+| 1 | Surprising Stat | Social Proof / Credibility |
+| 2 | Story / Result | Empathy + Relief |
+| 3 | FOMO / Urgency | Loss Aversion |
+| 4 | Curiosity Gap | Intrigue |
+| 5 | Direct Address / Call-out | Recognition |
+| 6 | Contrast / Enemy | Differentiation |
+| 7 | Question | Self-reference |
+| 8 | Pattern Interrupt | Pattern break |
+| 9 | Controversial | Polarization |
+| 10 | Problem-Solution | Pain → relief |
+
+## Copy Validation
+
+Check ad copy against platform char limits before shipping:
 
 ```bash
-adc dashboard
+# Single check
+adc check-copy --text "Your headline" --platform meta --field headline --trim
+
+# See all platform/field limits
+adc list-copy-specs
 ```
 
-Opens at http://localhost:8501. Pick **SecondKind Bold** and browse the tabs: Brand, Personas, Offers, Competitors, Gap Map, Psychology, **Voice**, Strategy, Briefs, and Matrix.
+Supported: meta, google, tiktok, linkedin, x — full table in
+[validators/copy_checker.py](validators/copy_checker.py).
 
-## Common commands
+## Phase 2 — Video (scaffolded, not yet wired)
+
+Per-client video output goes under `clients/<slug>/videos/<campaign>/`. The
+directory layout mirrors the [tvc-director](references/tvc-director/) skill —
+see [clients/_template/videos/README.md](clients/_template/videos/README.md)
+for the structure, narrative models, and intended workflow.
+
+## Brand Onboarding (interview-first research)
 
 ```bash
-adc list-clients
-adc status --client secondkind-bold                                  # what's done / what to run next
-adc voice --client secondkind-bold                                   # (re)build the voice + unspoken-truths bank
-adc brief --client secondkind-bold --product gut-balance --angles 6  # generate briefs (hooks pull from the voice bank)
-adc strategy-matrix --client secondkind-bold                         # rebuild the messaging matrix
+adc research --client my-client --url https://example.com
 ```
 
-Run `adc --help` for the full list of commands.
+Phase 1 collects 6 batched seed questions (products, audience, competitors,
+constraints, existing creative). Phase 2 fetches the homepage and standard
+sub-pages. Phase 3 compiles a comprehensive `brand-context.md` doc using
+Motion's [brand-intake skill](prompts/skills/motion/brand-intake.md).
+Phase 4 walks through extracted fields by confidence (high = auto-accept,
+medium = quick confirm, low/unknown = your input), then writes
+`brand.yaml`, `products/<slug>.yaml`, and a draft `avatar.yaml`.
 
-## Generating new work (briefs, voice, hooks)
+## Skill provenance
 
-Two ways to create new creative against the SecondKind Bold strategy:
+Markdown skills in [prompts/skills/](prompts/skills/) are imported from
+third-party MIT-licensed repos. Each file has an attribution header.
 
-**A. Key-free, with Claude Code** (best for "just build me some briefs"). Open this folder in [Claude Code](https://claude.com/claude-code) and ask, e.g. *"build 6 new SecondKind Bold briefs for Gut Balance."* Claude reads the personas, the voice bank, and the gap map and writes the briefs directly — on your Claude subscription, **no API key and no per-run cost.** The `build-briefs` skill in `.claude/skills/` gives Claude the format and the rules. You can ask it for hooks, a refreshed voice, or scripts the same way.
+### From [Motion](https://github.com/motion-team/creative-strategy-skills) (Alysha @ Motion)
 
-**B. Scripted, with the `adc` CLI.** Set `ANTHROPIC_API_KEY` in `.env`, then:
+| Skill | Used by |
+|---|---|
+| [motion/brand-intake.md](prompts/skills/motion/brand-intake.md) | `strategy/researcher.py` (interview + research → brand-context.md) |
+| [motion/review-audit.md](prompts/skills/motion/review-audit.md) | `strategy/voc_miner.py` (5-tier review scoring + 5 insight buckets) |
+| [motion/creative-strategy-engine.md](prompts/skills/motion/creative-strategy-engine.md) | `strategy/angle_multiplier.py` (pain × persona × awareness matrix) |
+| [motion/hook-tactics.md](prompts/skills/motion/hook-tactics.md) | `strategy/angle_multiplier.py` (35+ tactical hook formats) |
+| [motion/hook-writing.md](prompts/skills/motion/hook-writing.md) | `strategy/angle_multiplier.py` (psychologically driven composition) |
+| [motion/hook-voice-patterns.md](prompts/skills/motion/hook-voice-patterns.md) | `strategy/angle_multiplier.py` (native-feed swipe file) |
+| [motion/creative-mechanics.md](prompts/skills/motion/creative-mechanics.md) | `generators/prompt_engine.py` (structural ad concepts) |
+| [motion/visual-formats.md](prompts/skills/motion/visual-formats.md) | `generators/prompt_engine.py` (45+ Meta/paid social formats) |
 
-```bash
-adc brief --client secondkind-bold --product gut-balance --angles 6
-```
+### From [coreyhaines31/marketingskills](https://github.com/coreyhaines31/marketingskills)
 
-Deterministic and runs the built-in validators; calls the Anthropic API (~$0.50 per 6-brief run on your account).
+| Skill | Used by |
+|---|---|
+| [customer-research.md](prompts/skills/customer-research.md) | `strategy/voc_miner.py` (JTBD, confidence scoring, sample bias) |
+| [product-marketing-context.md](prompts/skills/product-marketing-context.md) | reference for brand/avatar schema expansion |
 
-Either way, new briefs automatically pull hooks from the voice bank and exploit the competitive gap map shipped in this repo.
+### From [DV0x/creative-ad-agent](https://github.com/DV0x/creative-ad-agent)
 
-## Tinkering
+| Skill | Used by |
+|---|---|
+| [hook-methodology.md](prompts/skills/hook-methodology.md) | `strategy/angle_multiplier.py` (research-first hook extraction) |
+| [hook-formulas.md](prompts/skills/hook-formulas.md) | `strategy/angle_multiplier.py` (10 hook types, organized by emotional trigger) |
 
-The client data lives under `clients/secondkind-bold/`. Edit the YAML files (personas, offers, voice, etc.) and re-run the relevant command to regenerate downstream artifacts. The dashboard re-reads the files whenever you refresh.
+Reference snapshot of the [tvc-director](references/tvc-director/) skill
+([Ethanxwang/tvc-director](https://github.com/Ethanxwang/tvc-director), MIT)
+is kept under `references/` for the future Phase 2 video pipeline.
+
+## Requirements
+
+- Python 3.11+
+- fal.ai API key (image generation)
+- Anthropic API key (strategy/copy)
+- OpenAI API key (vision analysis, optional)

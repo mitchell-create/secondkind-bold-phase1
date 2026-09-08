@@ -1,36 +1,101 @@
-# Secrets
+output/
 .env
-
-# Python
-.venv/
 __pycache__/
 *.pyc
-*.egg-info/
-dist/
-build/
 .ruff_cache/
+# .claude/ — top-level directory is no longer blanket-ignored. Specific
+# subdirectories that are machine-local (worktrees, third-party skills)
+# are ignored further down; project-owned skills get committed.
+.claude/worktrees/
 .pytest_cache/
-
-# Scratch / backups
-*.bak
-*.yaml.bak
-.tmp_*
-
-# Transient per-client artifacts (regenerable, not source of truth)
-clients/*/.cost-log.jsonl
+dist/
+*.egg-info/
+competitors/cache/
+clients/*/voc/*.json
+# Drive ingestion: cached Drive file analyses (keyed by file_id + modifiedTime).
+# Local-only; regenerated on demand.
 clients/*/.drive_cache/
+# Scratch directory for one-off generated assets (PDFs, images via fal.ai).
+# Test fixtures, not committed.
+scratch/
+
+# Per-client output directories. Only the canonical template + intentionally-
+# committed test clients live in git. New `adc init-client` / `adc research`
+# runs create local-only working dirs that should not clutter `git status`.
+clients/*/
+!clients/_template/
+!clients/magic-spoon/
+!clients/olipop/
+!clients/sbg-co/
+!clients/sbg-co-fresh/
+!clients/savedbygrace/
+# ...but its generated media stays out (repo rule: no images outside references/)
+clients/savedbygrace/**/*.png
+clients/savedbygrace/**/*.jpg
+!clients/secondkind/
+!clients/secondkind-bold/
+
+# Cost log per client — append-only, regenerable, not source-of-truth
+clients/*/.cost-log.jsonl
+
+# Ad-remixer output — per-run analysis / briefs / prompts / images.
+# Regenerable from `adc remix` and `adc remix-images`; not source-of-truth.
 clients/*/remixes/
 
-# Large binaries (not source of truth)
+# Reference images uploaded via the dashboard's Remix tab — local-only.
+references/_dashboard_uploads/
+
+# Ad Reference Library working files: unsaved analyzer drafts, the library's
+# cost log (append-only, regenerable), and gold-eval result runs. The cards
+# themselves (ad-*.yaml + images) and the gold answer key ARE committed.
+references/swipe/analyzed/.drafts/
+references/swipe/analyzed/.cost-log.jsonl
+references/swipe/gold/results-*.yaml
+
+# Scratch / temp logs from CLI runs — regenerable, not source-of-truth
+.tmp_*
+*.bak
+*.yaml.bak
+
+# Generated ad outputs (binary PNGs, large) — regenerable via `adc generate`
 ai-ads/
-output/
+
+# Source reference ad images — pulled from Drive on demand; large binaries.
+# Their per-file analyses (analyses/) ARE committed since they're small YAML.
 clients/*/reference_ads/raw/
 
-# Raw scraped research (social comments, competitor reviews). Contains
-# third-party usernames/PII — never ship it. Regenerable via the research
-# commands; the synthesized competitive-gaps.yaml is what downstream uses.
-clients/*/research/competitor-reviews/
-clients/*/research/instagram-comments/
-clients/*/research/tiktok-comments/
-clients/*/research/youtube-comments/
-clients/*/research/exa/raw/
+# Agent skill packs installed via `npx skills add` — machine-local skill
+# sources + Claude Code symlinks. Each developer installs their own via
+# `npx skills add higgsfield-ai/skills`; not source-of-truth.
+.agents/
+# Ignore CONTENTS of .claude/skills/ (the `/*` is key — Git can't re-include
+# a child if the parent directory itself is excluded). With `/*`, we exclude
+# each top-level child individually, leaving room for negations below.
+.claude/skills/*
+# But: project-owned Claude Code skills that ARE source-of-truth (e.g.
+# the /voice skill backing the copywriting voice profile) get un-ignored
+# explicitly. Add new project skills here when you create them.
+!.claude/skills/voice/
+!.claude/skills/creative-variant-explorer/
+!.claude/skills/higgsfield-ad-production/
+!.claude/skills/ai-video-ad/
+!.claude/skills/realistic-person-image/
+skills-lock.json
+
+# One-off backup tarballs of `ai-ads/` outputs. `ai-ads/` itself is
+# already gitignored — these are operator snapshots, not source-of-truth.
+migration_assets*.tar.gz
+
+# AI-generated media intermediates (Higgsfield/Kling outputs) stay out of git
+**/animated-ads/**/generated/
+
+# Python virtualenvs + local service logs (any machine)
+.venv/
+venv/
+dashboard-service*.log
+
+# archived client-dir versions (cold-run comparisons, superseded packages)
+_archives/
+
+# agent-local learning artifacts (OpenClaw continuous-learning)
+.learnings/

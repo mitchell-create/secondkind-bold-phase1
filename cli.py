@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import sys
+import json
 from datetime import date
 from pathlib import Path
 
@@ -303,6 +304,259 @@ def delete_persona_cmd(client: str, avatar_slug: str, yes: bool):
 # ─── Persona portraits (model library for identity-preserving ad gen) ────────
 
 
+@cli.command(name="generate-model")
+@click.option("--client", required=True, help="Client slug")
+@click.option("--avatar", "avatar_slug", default=None,
+              help="Avatar slug (e.g. 'primary' or 'burnout-biohacker-brandon'). "
+              "Omit to generate portraits for ALL avatars under the client.")
+@click.option("--candidates", default=3, type=click.IntRange(1, 6),
+              help="How many candidate portraits to generate per persona (default 3).")
+@click.option("--force", is_flag=True, default=False,
+              help="Regenerate even if candidate portraits already exist.")
+def generate_model_cmd(client: str, avatar_slug: str | None, candidates: int, force: bool):
+    """Generate canonical headshot portraits for one or all persona(s).
+
+    Each persona gets N candidate headshots saved under
+    clients/<slug>/avatars/<persona-slug>/candidate_N.png. After
+    generation you'd pick the canonical one (via dashboard, or by
+    copying it to <persona-slug>.png manually) and that face is then
+    used as an identity reference for every ad targeting the persona.
+
+    Cost: ~$0.25 per persona for 3 candidates (1 Sonnet visual-cues
+    call + 3 Nano Banana 2 generate calls).
+    """
+    from models.avatar import CustomerAvatar
+    from models.loader import load_brand
+    from strategy.persona_portrait import generate_portraits
+    import yaml as _yaml
+
+    client_dir = Path("clients") / client
+    if not client_dir.exists():
+        console.print(f"[red]Client '{client}' not found at {client_dir}[/red]")
+        raise SystemExit(1)
+
+    brand = load_brand(client)
+    avatars_dir = client_dir / "avatars"
+
+    # Resolve which avatars to process: one or all.
+    if avatar_slug:
+        targets = [avatars_dir / f"{avatar_slug}.yaml"]
+        if not targets[0].exists():
+            console.print(f"[red]Avatar not found: {targets[0]}[/red]")
+            raise SystemExit(1)
+    else:
+        targets = sorted(
+            p for p in avatars_dir.glob("*.yaml")
+            if not p.name.startswith("_") and not p.name.endswith(".bak")
+        )
+        if not targets:
+            console.print(
+                f"[red]No avatars under {avatars_dir}. "
+                f"Run `adc personas --client {client}` first.[/red]"
+            )
+            raise SystemExit(1)
+
+    console.print(
+        f"\n[bold cyan]Generating portraits[/bold cyan] for "
+        f"[green]{len(targets)}[/green] persona(s) "
+        f"({candidates} candidate(s) each)\n"
+    )
+
+    table = Table(title="Persona portrait generation")
+    table.add_column("Persona", style="cyan", max_width=30)
+    table.add_column("Slug", style="dim")
+    table.add_column("Status", style="green")
+    table.add_column("Candidates dir", style="dim")
+
+    for path in targets:
+        slug = path.stem
+        with open(path, encoding="utf-8") as fh:
+            avatar = CustomerAvatar(**_yaml.safe_load(fh))
+
+        try:
+            with console.status(f"Generating {candidates} portrait(s) for {avatar.name}..."):
+                result = generate_portraits(
+                    avatar=avatar,
+                    brand=brand,
+                    client_slug=client,
+                    avatar_slug=slug,
+                    num_candidates=candidates,
+                    force=force,
+                )
+        except FileExistsError as e:
+            table.add_row(avatar.name or slug, slug, "[yellow]skipped (already exists)[/yellow]", "")
+            continue
+        except Exception as e:
+            table.add_row(avatar.name or slug, slug, f"[red]error: {str(e)[:60]}[/red]", "")
+            continue
+
+        candidates_dir = result["candidate_paths"][0].parent
+        table.add_row(
+            avatar.name or slug,
+            slug,
+            f"[green]ok — {len(result['candidate_paths'])} files[/green]",
+            str(candidates_dir.relative_to(client_dir.parent.parent)),
+        )
+
+    console.print(table)
+    console.print(
+        f"\n[green]Next:[/green] inspect candidates and promote one to canonical:\n"
+        f"  - View: open the `candidate_N.png` files under "
+        f"`clients/{client}/avatars/<persona-slug>/`\n"
+        f"  - Promote (manual): copy your chosen candidate to "
+        f"`clients/{client}/avatars/<persona-slug>.png`"
+    )
+
+    from strategy.cost_tracker import log_cost
+    log_cost(
+        client,
+        "adc generate-model",
+        multiplier=len(targets) * candidates,
+        note=f"{len(targets)} persona(s) × {candidates} candidate(s)",
+    )
+
+
+# ─── Catalog census (full-SKU crawl + problem clusters) ─────────────────────
+
+
+@cli.command()
+@click.option("--client", required=True, help="Client slug")
+@click.option("--url", default=None, help="Store homepage URL (defaults to brand.yaml's url)")
+@click.option("--max-pages", default=12, type=int, help="Max /collections/all pages to crawl")
+def catalog(client: str, url: str | None, max_pages: int):
+    """Census the FULL catalog: every SKU, problem clusters, rule-1 verdict.
+
+    Crawls /collections/all in best-selling order, clusters products by the
+    customer problem they solve, and writes products/catalog.yaml. One cluster
+    means a single pipeline scope; several mean separate runs per cluster
+    (pipeline rule 1). The strategy matrix and brief prompts auto-inject this
+    context whenever the file exists.
+    """
+    import yaml as _yaml
+
+    from strategy.catalog import (
+        CatalogError,
+        cluster_catalog,
+        crawl_full_catalog,
+        write_catalog,
+    )
+
+    client_dir = Path("clients") / client
+    if not client_dir.exists():
+        console.print(f"[red]Client '{client}' not found at {client_dir}[/red]")
+        raise SystemExit(1)
+
+    brand_snippet = ""
+    brand_path = client_dir / "brand.yaml"
+    if brand_path.exists():
+        brand_data = _yaml.safe_load(brand_path.read_text(encoding="utf-8")) or {}
+        url = url or brand_data.get("url") or brand_data.get("homepage")
+        brand_snippet = " | ".join(
+            str(brand_data.get(k)) for k in ("name", "tone", "mission") if brand_data.get(k)
+        )
+    if not url:
+        console.print("[red]No URL available — pass --url or set url in brand.yaml.[/red]")
+        raise SystemExit(1)
+
+    with console.status(f"Crawling full catalog from {url}..."):
+        cards = crawl_full_catalog(url, max_pages=max_pages)
+    if not cards:
+        console.print(
+            f"[red]No products found at {url}/collections/all — "
+            f"not a Shopify store, or the listing is blocked.[/red]"
+        )
+        raise SystemExit(1)
+    console.print(f"[green]Crawled {len(cards)} unique products.[/green]")
+
+    with console.status("Clustering by customer problem..."):
+        try:
+            clustering = cluster_catalog(cards, brand_snippet)
+        except CatalogError as exc:
+            console.print(f"[red]{exc}[/red]")
+            raise SystemExit(1)
+
+    out_path = write_catalog(client, url, cards, clustering)
+    data = _yaml.safe_load(out_path.read_text(encoding="utf-8"))
+
+    table = Table(title=f"Catalog census — {len(cards)} products")
+    table.add_column("Cluster")
+    table.add_column("Problem")
+    table.add_column("Products", justify="right")
+    table.add_column("Persona fit")
+    for c in data["clusters"]:
+        table.add_row(
+            c.get("name", ""), c.get("problem", ""),
+            str(c.get("product_count", 0)), c.get("persona_fit", ""),
+        )
+    console.print(table)
+    console.print(f"\n[bold]{data['rule1_verdict']}[/bold]")
+
+    high = [p for p in data["products"] if p.get("ad_priority") == "high"]
+    if high:
+        console.print(f"\n[cyan]{len(high)} product(s) flagged ad-priority HIGH:[/cyan]")
+        for p in high[:10]:
+            console.print(f"  - {p['name']} ({p.get('price') or '?'}) — {p.get('promise', '')}")
+
+    console.print(f"\nWrote {out_path}")
+    console.print(
+        "[dim]strategy-matrix and brief prompts will now include this catalog "
+        "context automatically.[/dim]"
+    )
+
+    from strategy.cost_tracker import log_cost
+    log_cost(client, "adc catalog", note=f"{len(cards)} products clustered")
+
+
+# ─── Competitor best-sellers (free sales-rank snapshots) ────────────────────
+
+
+@cli.command()
+@click.option("--client", required=True, help="Client slug")
+@click.option("--top", "top_n", default=15, type=int, help="How many top sellers to keep per competitor")
+def bestsellers(client: str, top_n: int):
+    """Snapshot each competitor's best-selling products (free, no LLM).
+
+    Fetches /collections/all?sort_by=best-selling per competitor —
+    Firecrawl-rendered first (JS themes), static fallback — and writes
+    research/competitor-bestsellers/<slug>.json. The gap analyzer injects
+    these rankings into its per-brand context on the next analyze-gaps run,
+    so the map knows what competitor customers BUY, not just what they
+    complain about.
+    """
+    from strategy.competitor_bestsellers import snapshot_for_client
+
+    if not (Path("clients") / client / "competitors.yaml").exists():
+        console.print(f"[red]No competitors.yaml for '{client}' — run adc scaffold-competitors first.[/red]")
+        raise SystemExit(1)
+
+    with console.status("Snapshotting competitor best-sellers..."):
+        results = snapshot_for_client(client, top_n=top_n)
+
+    table = Table(title=f"Competitor best-sellers — top {top_n}")
+    table.add_column("Competitor")
+    table.add_column("Method")
+    table.add_column("Ranked", justify="right")
+    table.add_column("#1 seller")
+    for r in results:
+        top = r.get("top") or []
+        first = top[0]["name"] if top else (r.get("note") or "-")
+        table.add_row(r["competitor"], r["method"], str(len(top)), first)
+    console.print(table)
+
+    got = [r for r in results if r.get("top")]
+    console.print(
+        f"\n[green]{len(got)}/{len(results)} competitor(s) captured[/green] — "
+        f"saved under clients/{client}/research/competitor-bestsellers/"
+    )
+    console.print(
+        "[dim]Next analyze-gaps run will include these rankings in each "
+        "competitor's context.[/dim]"
+    )
+
+
+# ─── Onboard wrapper (runs stages 1-5 in sequence) ──────────────────────────
+
+
 @cli.command()
 @click.option("--client", required=True, help="Client slug (will be created if missing)")
 @click.option("--url", required=True, help="Brand homepage URL")
@@ -361,7 +615,13 @@ def onboard(ctx, client: str, url: str, max_products: int, max_personas: int, sk
         ctx.invoke(strategy_matrix, client=client, max_products=max_products)
 
     console.print()
-    console.print(f"[bold green]✓ Onboarding complete for '{client}'[/bold green]")
+    console.print(f"[bold green]✓ Onboarding stages 1-5 complete for '{client}'[/bold green]")
+    console.print(
+        "[yellow]This is NOT the full Phase 1 pipeline — onboard covers research, "
+        "product deep-dive, personas, offers, and the strategy matrix only. "
+        "Psychology, competitive/review/social research, gap analysis, and briefs "
+        "still remain.[/yellow]"
+    )
     console.print()
     console.print("[bold]Files now under clients/{}/:[/bold]".format(client))
     console.print("  - brand.yaml, brand-context.md")
@@ -370,17 +630,28 @@ def onboard(ctx, client: str, url: str, max_products: int, max_personas: int, sk
     console.print("  - offers.yaml")
     console.print("  - strategy-matrix.md, strategy-matrix.yaml")
     console.print()
-    console.print("[bold]Next:[/bold]")
+    console.print("[bold]Remaining Phase 1 steps (in order):[/bold]")
+    console.print(f"  1. adc profile-psychology --client {client}")
     console.print(
-        f"  1. adc mine-voc --client {client} --category <category>  "
-        "[dim](optional but recommended)[/dim]"
+        f"  2. adc scaffold-competitors --client {client} --names \"A, B, C\" "
+        "[dim](writes competitors.yaml with search queries pre-filled; then add "
+        "urls/notes and amazon_urls if genuinely sold there)[/dim]"
+    )
+    console.print(f"  3. adc research-competitors --client {client}")
+    console.print(
+        f"  4. adc research-amazon --client {client}  "
+        "[dim](needs amazon_urls in competitors.yaml)[/dim]"
     )
     console.print(
-        f"  2. adc profile-psychology --client {client}  "
-        "[dim](diagnose buyer heuristics + pairings)[/dim]"
+        f"  5. adc research-social --client {client}  "
+        "[dim](needs handles / post URLs / search queries in competitors.yaml)[/dim]"
     )
+    console.print(f"  6. adc mine-voc --client {client} --category <category>")
+    console.print(f"  7. adc analyze-gaps --client {client}")
+    console.print(f"  8. adc brief --client {client} --product <id> --angles 6")
+    console.print()
     console.print(
-        f"  3. adc brief --client {client} --product <id> --angles 6"
+        f"[bold]Verify every layer before Phase 2:[/bold] adc status --client {client}"
     )
 
 
@@ -461,9 +732,12 @@ def product_deep_dive(client: str, product: str | None):
     table.add_column("Reviews API", style="magenta")
     table.add_column("Confidence", style="dim")
     for name, info in summary.items():
+        status_text = info.get("status", "?")
+        if info.get("reason"):
+            status_text += f" ({info['reason']})"
         table.add_row(
             name[:40],
-            info.get("status", "?"),
+            status_text,
             str(info.get("price", ""))[:30],
             str(info.get("benefit_count", "")),
             str(info.get("social_proof_count", "")),
@@ -471,6 +745,9 @@ def product_deep_dive(client: str, product: str | None):
             str(info.get("confidence", "")),
         )
     console.print(table)
+    for name, info in summary.items():
+        if info.get("review_notes"):
+            console.print(f"[dim]{name}: {info['review_notes']}[/dim]")
 
 
 # ─── Offers (Stage 3) ───────────────────────────────────────────────────────
@@ -1268,16 +1545,55 @@ def research(client: str, url: str, max_products: int, auto: bool):
         console.print("[yellow]Aborted, no files written.[/yellow]")
         raise SystemExit(0)
 
+    # Normalize LLM-shaped fields to the Brand schema BEFORE writing — a
+    # mistyped field (e.g. visual_identity.mood as prose instead of a list)
+    # otherwise bricks every downstream load_brand() call.
+    from pydantic import ValidationError
+
+    from models.brand import Brand, VisualIdentity
+
+    try:
+        raw_vi = brand_yaml.get("visual_identity")
+        brand_yaml["visual_identity"] = VisualIdentity(
+            **(raw_vi if isinstance(raw_vi, dict) else {})
+        ).model_dump()
+        Brand(**brand_yaml)
+    except ValidationError as e:
+        console.print(
+            "[red]Extracted brand data failed schema validation — "
+            "not writing brand.yaml (a bad write breaks every later stage).[/red]"
+        )
+        console.print(f"[red]{e}[/red]")
+        raise SystemExit(1)
+
     (client_dir / "brand.yaml").write_text(
         _yaml.dump(brand_yaml, sort_keys=False, allow_unicode=True), encoding="utf-8"
     )
 
     products_dir = client_dir / "products"
     products_dir.mkdir(exist_ok=True)
+
+    from strategy.product_dedup import find_near_duplicate
+
+    # Site-extracted products (with URLs) are richer than interview-only
+    # mentions — write them first so a bare near-duplicate mention loses.
+    ordered_products = sorted(
+        chosen_products,
+        key=lambda p: bool(_flatten(p.get("url", {"value": ""}))),
+        reverse=True,
+    )
+    preexisting = [
+        p.stem for p in products_dir.glob("*.yaml") if not p.stem.startswith("example")
+    ]
     written_products = []
-    for product in chosen_products:
+    skipped_dups: list[tuple[str, str]] = []
+    for product in ordered_products:
         pname = _flatten(product.get("name", "untitled"))
         slug = _slugify(pname)
+        dup_of = find_near_duplicate(slug, written_products + preexisting)
+        if dup_of:
+            skipped_dups.append((slug, dup_of))
+            continue
         prod_yaml = {
             "name": pname,
             "description": _flatten(product.get("description", {"value": ""})),
@@ -1294,6 +1610,13 @@ def research(client: str, url: str, max_products: int, auto: bool):
         path = products_dir / f"{slug}.yaml"
         path.write_text(_yaml.dump(prod_yaml, sort_keys=False, allow_unicode=True), encoding="utf-8")
         written_products.append(slug)
+
+    for slug, dup_of in skipped_dups:
+        console.print(
+            f"[yellow]Skipped product '{slug}' — looks like a near-duplicate of "
+            f"'{dup_of}'. If it really is a different product, create "
+            f"products/{slug}.yaml manually.[/yellow]"
+        )
 
     (client_dir / "avatar.yaml").write_text(
         _yaml.dump(avatar_yaml, sort_keys=False, allow_unicode=True), encoding="utf-8"
@@ -1507,6 +1830,66 @@ def brief(
     log_cost(client, "adc brief", note=f"{len(briefs)} briefs across {len(avatars)} avatar(s) for {product}")
 
 
+# ─── Show Prompt Template ────────────────────────────────────────────────────
+
+
+@cli.command()
+@click.option("--prompt", "prompt_id", required=True, help="Library prompt ID (e.g. cooper-07-us-vs-them)")
+def show_prompt(prompt_id: str):
+    """Show a prompt template's full details and raw template text."""
+    from models.library import load_prompt as load_lib_prompt
+
+    p = load_lib_prompt(prompt_id)
+
+    console.print(f"\n[bold cyan]{p.name}[/bold cyan] ({p.id})")
+    console.print(f"[dim]Source: {p.source}[/dim]")
+    console.print(f"[dim]Category: {p.category} | Products: {', '.join(p.product_types)} | "
+                  f"Funnel: {p.funnel_stage}[/dim]")
+    console.print(f"[dim]Aspect ratios: {', '.join(p.aspect_ratios)} | "
+                  f"Audience: {', '.join(p.audience_fit)}[/dim]")
+    if p.description:
+        console.print(f"\n{p.description}")
+    console.print(f"\n[bold]Template Prompt:[/bold]")
+    console.print(f"\n{p.template_prompt}")
+    console.print(f"\n[green]To use this, ask Claude to customize it for your client/product.[/green]")
+    console.print(f"Or copy the template and fill in the [PLACEHOLDERS] manually.")
+
+
+# ─── Show Client Context ────────────────────────────────────────────────────
+
+
+@cli.command()
+@click.option("--client", required=True, help="Client slug")
+@click.option("--product", required=True, help="Product slug")
+def show_context(client: str, product: str):
+    """Show the full brand + product + avatar context for a client.
+
+    Use this to give Claude (in chat) all the context it needs to write
+    customized prompts for your product. Copy-paste the output into Claude.
+    """
+    from models.loader import load_brand, load_product, load_avatar
+    from generators.prompt_engine import _build_product_context
+
+    brand = load_brand(client)
+    prod = load_product(client, product)
+    avatar = load_avatar(client)
+
+    context = _build_product_context(brand, prod, avatar)
+
+    console.print(f"\n[bold cyan]Client Context: {brand.name} / {prod.name}[/bold cyan]")
+    console.print(f"[dim]Copy this into Claude to give it full brand context.[/dim]\n")
+    console.print(context)
+
+    # Also show product image URLs
+    console.print(f"\n[bold]Product Images (attach these in Higgsfield/Nano Banana 2):[/bold]")
+    if prod.image_url:
+        console.print(f"  Primary: {prod.image_url}")
+    if prod.image_path:
+        console.print(f"  Local: clients/{client}/{prod.image_path}")
+    for img in prod.additional_images:
+        console.print(f"  Additional: clients/{client}/{img}")
+
+
 # ─── Drive Asset Ingestion (Phase A) ─────────────────────────────────────────
 
 
@@ -1613,6 +1996,113 @@ def _format_field_value(value) -> str:
     if value == "":
         return "(empty)"
     return str(value)[:200]
+
+
+@cli.command(name="list-templates")
+@click.option("--client", required=True, help="Client slug")
+@click.option("--category", default=None,
+              help="Filter to one category (us-vs-them, testimonial-review, etc.)")
+def list_templates(client: str, category: str | None):
+    """List extracted templates for a client. Use the template id with
+    `adc generate --reference <id>` for single-reference art-directed mode."""
+    import yaml as _yaml
+
+    templates_root = Path("clients") / client / "templates"
+    if not templates_root.exists():
+        console.print(
+            f"[yellow]No templates yet for '{client}'. Run "
+            f"`adc extract-templates --client {client}` first.[/yellow]"
+        )
+        raise SystemExit(0)
+
+    rows: list[tuple[str, str, str, str, str]] = []
+    for yaml_file in sorted(templates_root.rglob("*.yaml")):
+        try:
+            with open(yaml_file, encoding="utf-8") as f:
+                d = _yaml.safe_load(f) or {}
+            tpl = (d.get("template_prompt") or "").strip()
+            if len(tpl) < 50:
+                continue  # skip empty / broken templates
+            cat = d.get("category", "—")
+            if category and cat != category:
+                continue
+            rows.append((
+                d.get("id", yaml_file.stem),
+                d.get("name", "—")[:30],
+                cat,
+                ", ".join((d.get("tags") or [])[:4])[:50],
+                d.get("source_ad", "—").split("\\")[-1].split("/")[-1][:40],
+            ))
+        except Exception:
+            continue
+
+    if not rows:
+        console.print(f"[yellow]No usable templates found for '{client}'"
+                      + (f" in category '{category}'" if category else "") + ".[/yellow]")
+        raise SystemExit(0)
+
+    table = Table(title=f"Templates — {client}"
+                  + (f" / {category}" if category else "")
+                  + f" ({len(rows)} usable)")
+    table.add_column("Template ID", style="cyan", max_width=50)
+    table.add_column("Name", style="green", max_width=30)
+    table.add_column("Category", style="yellow", max_width=20)
+    table.add_column("Tags", style="dim", max_width=50)
+    table.add_column("Source ad", style="dim", max_width=40)
+    for r in rows:
+        table.add_row(*r)
+    console.print(table)
+    console.print(
+        f"\n[dim]Use any template id with: "
+        f"adc generate --client {client} --pick <n> --reference <template-id>[/dim]"
+    )
+
+
+@cli.command(name="extract-templates")
+@click.option("--client", required=True, help="Client slug")
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help="Re-extract templates for every ad even if a template YAML already exists.",
+)
+def extract_templates(client: str, force: bool):
+    """Extract Cooper-style prompt templates from the client's reference ads.
+
+    For each ad in clients/<slug>/reference_ads/raw/<category>/, runs vision +
+    LLM to produce a structured LibraryPrompt YAML at
+    clients/<slug>/templates/<category>/<ad_stem>.yaml. These templates outrank
+    Cooper/Nanobana when the prompt engine picks compositional examples for a
+    brief.
+
+    Cost: ~$0.02 per ad. Idempotent — re-runs skip ads whose template already
+    exists, unless --force.
+    """
+    from strategy.template_extractor import extract_all_client_templates
+
+    client_dir = Path("clients") / client
+    if not client_dir.exists():
+        console.print(f"[red]Client '{client}' not found at {client_dir}[/red]")
+        raise SystemExit(1)
+
+    with console.status(f"Extracting prompt templates for '{client}' via Gemini vision..."):
+        try:
+            result = extract_all_client_templates(client_slug=client, force=force)
+        except FileNotFoundError as e:
+            console.print(f"[red]{e}[/red]")
+            raise SystemExit(1)
+
+    console.print(
+        f"[green]Templates extracted: {result.new_extractions} new, "
+        f"{result.cache_hits} cached, {len(result.skipped)} skipped[/green]"
+    )
+    if result.skipped:
+        for name, reason in result.skipped[:5]:
+            console.print(f"  [yellow]skip[/yellow] {name}: {reason}")
+
+    from strategy.cost_tracker import log_cost
+    log_cost(client, "adc extract-templates", multiplier=result.new_extractions,
+             note=f"{result.new_extractions} templates extracted")
 
 
 @cli.command(name="analyze-references")
@@ -2008,6 +2498,128 @@ def voc_to_avatar(client: str, mode: str, apply: bool):
 # ─── Performance Feedback Loop ───────────────────────────────────────────────
 
 
+@cli.command()
+@click.option("--client", required=True)
+@click.option("--creative-id", required=True, help="Creative filename or ID")
+@click.option("--style", default="", help="Style used")
+@click.option("--hook", default="", help="Hook text used")
+@click.option("--angle", default="", help="Messaging angle")
+@click.option("--platform", default="meta")
+@click.option("--ctr", type=float, default=None, help="Click-through rate (%)")
+@click.option("--cpa", type=float, default=None, help="Cost per acquisition ($)")
+@click.option("--roas", type=float, default=None, help="Return on ad spend")
+@click.option("--spend", type=float, default=None, help="Total spend ($)")
+@click.option("--verdict", default="", help="winner, loser, control, testing")
+@click.option("--notes", default="", help="What worked or didn't")
+def log_result(client: str, creative_id: str, **kwargs):
+    """Log ad performance data for the feedback loop."""
+    from models.loader import load_performance_log, save_performance_log
+    from models.result import CreativeResult
+
+    existing = load_performance_log(client)
+
+    result = CreativeResult(
+        creative_id=creative_id,
+        client=client,
+        product=kwargs.get("product", ""),
+        style=kwargs["style"],
+        hook=kwargs["hook"],
+        angle=kwargs["angle"],
+        platform=kwargs["platform"],
+        ctr=kwargs["ctr"],
+        cpa=kwargs["cpa"],
+        roas=kwargs["roas"],
+        spend=kwargs["spend"],
+        verdict=kwargs["verdict"],
+        notes=kwargs["notes"],
+    )
+
+    existing.append(result)
+    save_performance_log(client, existing)
+    console.print(f"[green]Logged result for '{creative_id}' ({kwargs.get('verdict', 'logged')})[/green]")
+
+
+@cli.command()
+@click.option("--client", required=True)
+@click.option("--days", default=90, help="Analyze last N days")
+def analyze_results(client: str, days: int):
+    """Analyze performance data and generate winning patterns."""
+    from models.loader import load_performance_log, save_winning_patterns
+    from strategy.pattern_learner import analyze_results as _analyze
+
+    results = load_performance_log(client)
+    if not results:
+        console.print(f"[yellow]No performance data for '{client}'. Use 'adc log-result' first.[/yellow]")
+        return
+
+    with console.status(f"Analyzing {len(results)} results from last {days} days..."):
+        patterns = _analyze(results, client, days)
+
+    save_winning_patterns(client, patterns)
+
+    console.print(f"\n[green]Analyzed {patterns.total_creatives_analyzed} creatives[/green]")
+
+    if patterns.best_styles:
+        console.print("\n[cyan]Best styles:[/cyan]")
+        for s in patterns.best_styles:
+            console.print(f"  {s.style}: {s.avg_ctr:.2f}% CTR (n={s.sample_size})")
+
+    if patterns.recommendations:
+        console.print("\n[cyan]Recommendations:[/cyan]")
+        for r in patterns.recommendations:
+            console.print(f"  • {r}")
+
+
+# ─── Creative Matrix ─────────────────────────────────────────────────────────
+
+
+@cli.command()
+@click.option("--client", required=True)
+@click.option("--product", required=True)
+@click.option("--hooks", required=True, help="Comma-separated hook types")
+@click.option("--styles", required=True, help="Comma-separated style slugs")
+@click.option("--platforms", default="meta", help="Comma-separated platforms")
+def matrix(client: str, product: str, hooks: str, styles: str, platforms: str):
+    """Generate a creative testing matrix (all combinations)."""
+    from models.loader import load_brand, load_product
+    from strategy.matrix_builder import MatrixConfig, build_matrix, estimate_matrix_cost
+
+    brand = load_brand(client)
+    prod = load_product(client, product)
+
+    config = MatrixConfig(
+        hooks=[h.strip() for h in hooks.split(",")],
+        styles=[s.strip() for s in styles.split(",")],
+        platforms=[p.strip() for p in platforms.split(",")],
+    )
+
+    combos = build_matrix(config)
+    cost = estimate_matrix_cost(combos)
+
+    table = Table(title="Creative Matrix")
+    table.add_column("#", style="dim")
+    table.add_column("Hook", style="cyan")
+    table.add_column("Style", style="green")
+    table.add_column("Platform", style="yellow")
+
+    for i, combo in enumerate(combos, 1):
+        table.add_row(
+            str(i),
+            combo.get("hook", ""),
+            combo.get("style", ""),
+            combo.get("platform", ""),
+        )
+
+    console.print(table)
+    console.print(f"\n[cyan]Total combinations: {cost['combinations']}[/cyan]")
+    console.print(f"[cyan]Estimated images: {cost['total_images']}[/cyan]")
+    console.print(f"[cyan]Estimated cost: {cost['estimated_cost']}[/cyan]")
+    console.print("\nTo generate all, run each combination with 'adc generate'")
+
+
+# ─── Creative Matrix (Phase 1 — tactical 4-tab synthesis) ───────────────────
+
+
 @cli.command(name="creative-matrix")
 @click.option("--client", required=True, help="Client slug")
 @click.option(
@@ -2047,6 +2659,36 @@ def voc_to_avatar(client: str, mode: str, apply: bool):
     is_flag=True,
     help="Skip writing the XLSX workbook (YAML still written).",
 )
+@click.option(
+    "--build",
+    "build_mode",
+    type=click.Choice(["static", "video", "dry"]),
+    default=None,
+    help="With --row: synthesize a CreativeBrief from the row and hand off to "
+    "the image-gen pipeline. 'static' = generate the ad. 'dry' = show what "
+    "would be generated without spending. 'video' = not yet wired.",
+)
+@click.option(
+    "--product",
+    "build_product",
+    default=None,
+    help="Product slug to anchor the generated ad on. Required with --build "
+    "static when the client has more than one product.",
+)
+@click.option(
+    "--num-images",
+    "build_num_images",
+    default=1,
+    type=int,
+    help="With --build static: how many image variants to generate. Default 1.",
+)
+@click.option(
+    "--engine",
+    "build_engine",
+    type=click.Choice(["nb2", "higgsfield-soul"]),
+    default="nb2",
+    help="With --build static: which image-gen engine to use. Default nb2.",
+)
 def creative_matrix_cmd(
     client: str,
     tier: str,
@@ -2055,6 +2697,10 @@ def creative_matrix_cmd(
     next_idea: bool,
     refresh_trending: bool,
     no_xlsx: bool,
+    build_mode: str | None,
+    build_product: str | None,
+    build_num_images: int,
+    build_engine: str,
 ):
     """Build the tactical creative matrix — 4 tabs of combinatorial ad seeds.
 
@@ -2102,6 +2748,19 @@ def creative_matrix_cmd(
             console.print(f"[red]Row '{row}' not found in matrix.[/red]")
             raise SystemExit(1)
 
+        # --build: synthesize a brief and (optionally) generate the image.
+        # This is the bridge between strategy (the matrix) and execution
+        # (existing image-gen pipeline).
+        if build_mode:
+            _handle_matrix_build(
+                client=client,
+                row_target=target,
+                build_mode=build_mode,
+                build_product=build_product,
+                build_num_images=build_num_images,
+                build_engine=build_engine,
+            )
+            return
 
         if next_idea:
             with console.status(f"Generating trending_next for {row}..."):
@@ -2211,6 +2870,191 @@ def creative_matrix_cmd(
     )
 
 
+def _handle_matrix_build(
+    *,
+    client: str,
+    row_target,
+    build_mode: str,
+    build_product: str | None,
+    build_num_images: int,
+    build_engine: str,
+):
+    """Synthesize a CreativeBrief from a matrix row + hand off to image gen.
+
+    Modes:
+      dry    Print the synthesized brief, no save, no generation.
+      video  Stub — print 'not yet wired' and exit with non-zero (so scripts
+             can detect the unsupported path).
+      static Save the brief to clients/<slug>/briefs/, then call the existing
+             `generate_from_brief` pipeline to produce N variants.
+    """
+    from models.loader import (
+        list_products,
+        load_all_avatars,
+        load_avatar,
+        load_brand,
+        load_product,
+        save_brief,
+    )
+    from strategy.creative_matrix import row_to_brief
+
+    if build_mode == "video":
+        console.print(
+            "[red]--build video is not yet wired.[/red] The video pipeline "
+            "is a downstream component that hasn't been integrated with the "
+            "matrix yet. For now, use --build static or run the row's "
+            "static_treatment manually."
+        )
+        raise SystemExit(2)
+
+    # ─── Resolve product ──────────────────────────────────────────────────
+    products = list_products(client)
+    if not products:
+        console.print(
+            f"[red]No products found at clients/{client}/products/. "
+            f"Add a product YAML before building.[/red]"
+        )
+        raise SystemExit(1)
+
+    if build_product:
+        if build_product not in products:
+            console.print(
+                f"[red]Product '{build_product}' not found. "
+                f"Available: {', '.join(products)}[/red]"
+            )
+            raise SystemExit(1)
+        product_slug = build_product
+    elif len(products) == 1:
+        product_slug = products[0]
+        console.print(f"[dim]Auto-selected only product: {product_slug}[/dim]")
+    else:
+        console.print(
+            f"[red]Client has multiple products: {', '.join(products)}. "
+            f"Pass --product <slug>.[/red]"
+        )
+        raise SystemExit(1)
+
+    product = load_product(client, product_slug)
+    brand = load_brand(client)
+
+    # ─── Resolve avatar ───────────────────────────────────────────────────
+    # Prefer the first avatar in avatars/ (multi-persona world). Fall back
+    # to the legacy single avatar.yaml. Matrix rows are persona-agnostic, so
+    # any avatar yields a usable brief — the operator can re-target later by
+    # editing the saved brief.
+    avatar = None
+    all_avatars = load_all_avatars(client)
+    if all_avatars:
+        avatar = all_avatars[0]
+    else:
+        avatar = load_avatar(client)
+
+    # ─── Synthesize the brief ─────────────────────────────────────────────
+    brief = row_to_brief(
+        row=row_target,
+        client_slug=client,
+        product=product,
+        avatar=avatar,
+    )
+
+    # ─── Dry mode: show + exit ────────────────────────────────────────────
+    if build_mode == "dry":
+        console.print(
+            f"\n[bold cyan]Dry-build of row {row_target.id} "
+            f"({row_target.tab.value})[/bold cyan]"
+        )
+        console.print(f"  product:    {product.name}")
+        console.print(f"  avatar:     {avatar.name if avatar else '(none)'}")
+        console.print(f"  brief_id:   {brief.brief_id}")
+        console.print(f"  awareness:  {brief.awareness_level.value}")
+        console.print(f"  framework:  {brief.framework.value}")
+        console.print(f"  angle:      {brief.angle[:160]}")
+        console.print(f"  hook:       {brief.hook[:160]}")
+        console.print(f"  hook_tactic: {brief.hook_tactic or '(none)'}")
+        console.print(f"  visual_format: {brief.visual_format or '(none)'}")
+        if brief.visual_format_alternatives:
+            console.print(
+                f"  visual_format_alternatives: {', '.join(brief.visual_format_alternatives)}"
+            )
+        console.print(f"  visual_direction: {brief.visual_direction[:300]}")
+        console.print(f"  pain_point: {brief.pain_point[:200]}")
+        if brief.benefit_callouts:
+            console.print(f"  benefit_callouts: {brief.benefit_callouts}")
+        console.print(
+            "\n[dim]Dry mode — no brief saved, no image generated. "
+            "Re-run with --build static to actually generate.[/dim]"
+        )
+        return
+
+    # ─── Static mode: save + generate ─────────────────────────────────────
+    if build_mode == "static":
+        from generators.image_generator import generate_from_brief
+
+        brief_path = save_brief(client, brief)
+        console.print(
+            f"\n[green]Saved brief:[/green] {brief_path}\n"
+            f"[dim]This brief is now visible to `adc generate` and `adc menu`.[/dim]"
+        )
+
+        console.print(
+            f"\n[bold cyan]Generating {build_num_images} image(s) for "
+            f"{brief.brief_id} on {product.name}[/bold cyan]\n"
+            f"[dim]Engine: {build_engine}[/dim]"
+        )
+        try:
+            prompt_used, results = generate_from_brief(
+                brief=brief,
+                brand=brand,
+                product=product,
+                avatar=avatar,
+                client_slug=client,
+                num_images=build_num_images,
+                engine=build_engine,
+            )
+        except Exception as e:
+            console.print(
+                f"[red]Image generation failed: {type(e).__name__}: {e}[/red]\n"
+                f"[dim]The brief was still saved at {brief_path} — "
+                f"you can retry via `adc generate` later.[/dim]"
+            )
+            raise SystemExit(1)
+
+        console.print(f"\n[green]Generated {len(results)} image(s):[/green]")
+        for r in results:
+            local_path = getattr(r, "local_path", None) or "(no local path)"
+            console.print(f"  {local_path}")
+
+        # Sidecar metadata so every generated ad is traceable back to the row.
+        try:
+            from generators.ad_metadata import write_ad_metadata
+            for r in results:
+                local_path = getattr(r, "local_path", None)
+                if not local_path:
+                    continue
+                write_ad_metadata(
+                    Path(local_path),
+                    engine=build_engine,
+                    prompt_or_layout=prompt_used or "",
+                    ship_status="alt",
+                    brief_id=brief.brief_id,
+                    notes=f"adc creative-matrix --build: row {row_target.id}",
+                    extra={"source_matrix_row": row_target.id},
+                )
+        except Exception:
+            pass
+
+        from strategy.cost_tracker import log_cost
+        log_cost(
+            client,
+            "adc creative-matrix --build static",
+            multiplier=build_num_images,
+            note=f"row {row_target.id} → brief {brief.brief_id}",
+        )
+
+
+# ─── Compliance Check ────────────────────────────────────────────────────────
+
+
 @cli.command()
 @click.option("--text", default=None, help="Text to check")
 @click.option("--brief-id", default=None, help="Brief ID to check")
@@ -2298,6 +3142,46 @@ def list_copy_specs():
 
 
 # ─── Validate Image ──────────────────────────────────────────────────────────
+
+
+@cli.command()
+@click.option("--image", required=True, help="Path to image file")
+@click.option("--client", default=None, help="Client slug for brand color checking")
+@click.option("--platform", default="meta", help="Platform to validate against")
+def validate(image: str, client: str | None, platform: str):
+    """Validate a generated image against platform specs and brand colors."""
+    from validators.platform_checker import check_image
+    from validators.brand_checker import check_brand_colors
+
+    image_path = Path(image)
+    console.print(f"\nValidating: {image_path}")
+
+    # Platform checks
+    console.print(f"\n[cyan]Platform checks ({platform}):[/cyan]")
+    platform_checks = check_image(image_path, platform)
+    for c in platform_checks:
+        icon = "[green]PASS[/green]" if c.passed else "[red]FAIL[/red]"
+        console.print(f"  {icon} {c.check}: {c.detail}")
+
+    # Brand color checks
+    if client:
+        from models.loader import load_brand
+        brand = load_brand(client)
+        color_dict = {
+            "primary": brand.colors.primary,
+            "secondary": brand.colors.secondary,
+        }
+        console.print(f"\n[cyan]Brand color checks ({client}):[/cyan]")
+        brand_checks = check_brand_colors(image_path, color_dict)
+        for c in brand_checks:
+            icon = "[green]PASS[/green]" if c.passed else "[yellow]WARN[/yellow]"
+            console.print(f"  {icon} {c.detail}")
+
+
+# ─── Browse Prompt Library ───────────────────────────────────────────────────
+
+
+# ─── Interactive Web Dashboard ──────────────────────────────────────────────
 
 
 @cli.command()
@@ -2476,7 +3360,9 @@ def research_competitors(client: str, force_refresh: bool, skip_onsite: bool):
         pull_competitor_reviews,
     )
     from strategy.exa_research import (
+        cache_error,
         cache_result,
+        cache_stem,
         competitive_queries_for_brand,
         run_query,
     )
@@ -2494,6 +3380,15 @@ def research_competitors(client: str, force_refresh: bool, skip_onsite: bool):
     console.print(f"[cyan]Competitive research: {brand.name} vs {len(competitors)} competitors[/cyan]")
     for c in competitors:
         console.print(f"  - {c.name} ({c.priority}, {c.type}) -> {c.url}")
+
+    from strategy.research_preflight import (
+        amazon_preflight_line,
+        homepage_preflight_line,
+    )
+    console.print(f"[dim]{amazon_preflight_line(competitors, client)}[/dim]")
+    homepage_warning = homepage_preflight_line(competitors, client)
+    if homepage_warning:
+        console.print(f"[bold yellow]{homepage_warning}[/bold yellow]")
 
     console.print(
         f"\n[yellow]This run includes:[/yellow] Exa web sentiment (Reddit, Trustpilot, news) "
@@ -2553,8 +3448,7 @@ def research_competitors(client: str, force_refresh: bool, skip_onsite: bool):
 
     exa_cache = Path("clients") / client / "research" / "exa" / "raw"
     for i, q in enumerate(queries, 1):
-        from strategy.exa_research import _slugify
-        cache_path = exa_cache / f"{_slugify(q.label)}.json"
+        cache_path = exa_cache / f"{cache_stem(q.label)}.json"
         if cache_path.exists() and not force_refresh:
             import json as _json
             data = _json.loads(cache_path.read_text(encoding="utf-8"))
@@ -2573,6 +3467,7 @@ def research_competitors(client: str, force_refresh: bool, skip_onsite: bool):
                 str(i), q.label, q.category, str(len(result.results)), top_domain
             )
         except Exception as e:
+            cache_error(client, q, e)
             exa_table.add_row(
                 str(i), q.label, q.category, "ERROR", str(e)[:40]
             )
@@ -2650,8 +3545,14 @@ def research_amazon(client: str, max_reviews: int, stars: str, force_refresh: bo
     targets = [(c, url) for c in competitors for url in (c.amazon_urls or [])]
     if not targets:
         console.print(
-            f"[yellow]No amazon_urls set in clients/{client}/competitors.yaml.[/yellow]\n"
-            f"[dim]Add an `amazon_urls:` list to each competitor with 1-3 product URLs, then re-run.[/dim]"
+            f"[yellow]No amazon_urls set in clients/{client}/competitors.yaml — "
+            f"nothing to scrape.[/yellow]\n"
+            f"[dim]Amazon product URLs are NOT auto-discovered from competitor "
+            f"homepages. To use this layer: search amazon.com for each "
+            f"competitor's hero product, confirm it's actually sold by that brand "
+            f"(not a lookalike/reseller), and add 1-3 URLs under `amazon_urls:` "
+            f"per competitor. If the category isn't really bought on Amazon, "
+            f"skip this layer — Exa/Reddit/social carry the VOC load instead.[/dim]"
         )
         raise SystemExit(1)
 
@@ -2706,14 +3607,24 @@ def research_amazon(client: str, max_reviews: int, stars: str, force_refresh: bo
                     max_reviews=max_reviews,
                     star_filter=star_filter,
                 )
-            cache_amazon_bundle(client, bundle)
+            # A failed pull must stay retryable: caching a zero-review bundle
+            # whose notes carry an Apify failure makes the failure look done
+            # forever (bit us live — cap-era empties skipped as '(cached)').
+            # Zero reviews WITHOUT a failure note is a legit empty tier and
+            # caches normally so we never re-pay for it.
+            pull_failed = not bundle.reviews and (bundle.notes or "").startswith(
+                ("Apify call failed", "Apify run completed", "Failed to read Apify")
+            )
+            if not pull_failed:
+                cache_amazon_bundle(client, bundle)
             table.add_row(
                 str(call_num),
                 competitor.name,
                 bundle.asin or "?",
                 short,
                 str(len(bundle.reviews)),
-                (bundle.notes or "OK")[:40],
+                ("NOT CACHED - retryable: " if pull_failed else "")
+                + (bundle.notes or "OK")[:40],
             )
 
     console.print(table)
@@ -2748,6 +3659,545 @@ def research_amazon(client: str, max_reviews: int, stars: str, force_refresh: bo
 
 
 # ─── Tier 3 social-comment research ──────────────────────────────────────────
+
+
+@cli.command(name="check-env")
+def check_env_cmd():
+    """Which API keys are present on THIS machine (names only, never values).
+
+    Presence does not prove validity — a stale key still shows present.
+    Per-layer failures surface in run output and adc status diagnostics.
+    Free, local. Exits 1 when a required key is missing.
+    """
+    from strategy.env_check import check_env, missing_required
+
+    statuses = check_env()
+    table = Table(title="API key presence (values never shown)")
+    table.add_column(" ", justify="center", width=4)
+    table.add_column("Key", style="cyan")
+    table.add_column("Tier", style="yellow")
+    table.add_column("Unlocks", style="dim", max_width=52)
+    for s in statuses:
+        mark = "[green]OK[/green]" if s.present else "[red]--[/red]"
+        table.add_row(mark, s.name, s.tier, s.unlocks)
+    console.print(table)
+
+    missing = missing_required(statuses)
+    if missing:
+        console.print(
+            f"[bold red]Missing required key(s): {', '.join(missing)} — "
+            f"the strategy pipeline cannot run without them.[/bold red]"
+        )
+        raise SystemExit(1)
+    absent = [s.name for s in statuses if not s.present and s.tier != "phase-2"]
+    if absent:
+        console.print(
+            f"[yellow]Absent (layers silently thinner without them): "
+            f"{', '.join(absent)}[/yellow]"
+        )
+    else:
+        console.print("[green]All Phase 1 keys present.[/green]")
+
+
+# ─── Canva Connect OAuth ─────────────────────────────────────────────────────
+
+
+@cli.group(name="canva")
+def canva_cmd():
+    """Canva Connect OAuth utilities."""
+    pass
+
+
+@canva_cmd.command(name="auth-url")
+@click.option(
+    "--state-file",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Where to store temporary PKCE state. Defaults to ~/.adcreatives/.",
+)
+def canva_auth_url_cmd(state_file: Path | None):
+    """Print a Canva OAuth URL and save the PKCE verifier locally.
+
+    Free, local. Does not call Canva or spend anything.
+    """
+    from strategy.canva_oauth import (
+        build_authorization_url,
+        default_state_path,
+        generate_pkce_pair,
+        load_config_from_env,
+        save_oauth_state,
+    )
+
+    try:
+        config = load_config_from_env()
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise SystemExit(1)
+
+    code_verifier, code_challenge = generate_pkce_pair()
+    state = os.urandom(16).hex()
+    state_path = state_file or default_state_path()
+    save_oauth_state(
+        state_path,
+        state=state,
+        code_verifier=code_verifier,
+        redirect_uri=config.redirect_uri,
+    )
+    url = build_authorization_url(
+        config,
+        state=state,
+        code_challenge=code_challenge,
+    )
+
+    console.print("[green]Saved temporary Canva OAuth state.[/green]")
+    console.print(f"[dim]{state_path}[/dim]")
+    console.print("\n[bold]Open this URL to approve the integration:[/bold]")
+    console.print(url)
+    console.print(
+        "\n[dim]Start the callback server before approving if your redirect URI "
+        "points to 127.0.0.1.[/dim]"
+    )
+
+
+@canva_cmd.command(name="callback-server")
+@click.option("--port", default=8787, show_default=True, type=int)
+@click.option(
+    "--state-file",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="PKCE state file from `adc canva auth-url`.",
+)
+@click.option(
+    "--env-path",
+    type=click.Path(path_type=Path),
+    default=Path(".env"),
+    show_default=True,
+    help="Local env file to update with Canva tokens.",
+)
+def canva_callback_server_cmd(port: int, state_file: Path | None, env_path: Path):
+    """Handle one local Canva OAuth callback and save tokens to .env."""
+    from strategy.canva_oauth import (
+        CanvaOAuthConfig,
+        default_state_path,
+        load_config_from_env,
+        load_oauth_state,
+        run_callback_server,
+    )
+
+    state_path = state_file or default_state_path()
+    if not state_path.exists():
+        console.print(
+            f"[red]Missing OAuth state file: {state_path}. "
+            "Run `adc canva auth-url` first.[/red]"
+        )
+        raise SystemExit(1)
+
+    try:
+        config = load_config_from_env()
+        saved = load_oauth_state(state_path)
+    except (ValueError, OSError, KeyError) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise SystemExit(1)
+
+    # Use the same redirect URI used to generate the PKCE auth URL, even if the
+    # shell env changed between commands.
+    config = CanvaOAuthConfig(
+        client_id=config.client_id,
+        client_secret=config.client_secret,
+        redirect_uri=saved["redirect_uri"],
+        scopes=config.scopes,
+    )
+    console.print(
+        f"[green]Listening for one Canva OAuth callback on "
+        f"http://127.0.0.1:{port}/canva/oauth/callback[/green]"
+    )
+    try:
+        run_callback_server(
+            config=config,
+            expected_state=saved["state"],
+            code_verifier=saved["code_verifier"],
+            env_path=env_path,
+            port=port,
+        )
+    except RuntimeError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise SystemExit(1)
+
+    console.print("[green]Canva OAuth succeeded. Tokens saved to local .env.[/green]")
+    console.print("[dim]Token values were not printed.[/dim]")
+
+
+@canva_cmd.command(name="refresh-token")
+@click.option(
+    "--env-path",
+    type=click.Path(path_type=Path),
+    default=Path(".env"),
+    show_default=True,
+    help="Local env file to update with refreshed Canva tokens.",
+)
+def canva_refresh_token_cmd(env_path: Path):
+    """Refresh CANVA_ACCESS_TOKEN from CANVA_REFRESH_TOKEN."""
+    from strategy.canva_oauth import (
+        load_config_from_env,
+        refresh_access_token,
+        token_updates,
+        update_env_file,
+    )
+
+    refresh_token = os.environ.get("CANVA_REFRESH_TOKEN", "").strip()
+    if not refresh_token:
+        console.print("[red]Missing CANVA_REFRESH_TOKEN.[/red]")
+        raise SystemExit(1)
+    try:
+        config = load_config_from_env()
+        tokens = refresh_access_token(config, refresh_token=refresh_token)
+    except Exception as exc:
+        console.print(f"[red]Canva token refresh failed: {exc}[/red]")
+        raise SystemExit(1)
+    updates = token_updates(tokens)
+    if updates:
+        update_env_file(env_path, updates)
+    console.print("[green]Canva token refreshed and saved to local .env.[/green]")
+    console.print("[dim]Token values were not printed.[/dim]")
+
+
+def _canva_payload_items(payload: dict) -> list:
+    for key in ("items", "designs", "assets"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            return value
+    return []
+
+
+def _canva_nested_item(item: dict) -> dict:
+    for key in ("design", "asset", "folder", "item"):
+        value = item.get(key)
+        if isinstance(value, dict):
+            return value
+    return item
+
+
+def _print_canva_json(payload: dict) -> None:
+    console.print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+
+@canva_cmd.command(name="status")
+def canva_status_cmd():
+    """Show local Canva Connect env/token/scope status without printing secrets."""
+    from strategy.canva_connect import granted_scopes, missing_scopes, requested_scopes
+
+    recommended_next = [
+        "profile:read",
+        "folder:write",
+    ]
+    design_content_scopes = [
+        "design:content:read",
+        "design:content:write",
+    ]
+    token_fields = [
+        "CANVA_CLIENT_ID",
+        "CANVA_CLIENT_SECRET",
+        "CANVA_REDIRECT_URI",
+        "CANVA_ACCESS_TOKEN",
+        "CANVA_REFRESH_TOKEN",
+    ]
+    table = Table(title="Canva Connect Status")
+    table.add_column("Field")
+    table.add_column("Status")
+    for field in token_fields:
+        present = bool(os.environ.get(field, "").strip())
+        table.add_row(field, "[green]present[/green]" if present else "[yellow]missing[/yellow]")
+    console.print(table)
+
+    requested = sorted(requested_scopes())
+    granted = sorted(granted_scopes())
+    console.print("\n[bold]Requested scopes for next OAuth flow:[/bold]")
+    console.print(" ".join(requested) if requested else "[yellow]none configured[/yellow]")
+    console.print("\n[bold]Granted scopes on current saved token:[/bold]")
+    console.print(" ".join(granted) if granted else "[yellow]none granted yet[/yellow]")
+    if requested and granted and set(requested) != set(granted):
+        console.print(
+            "\n[yellow]Requested scopes differ from the current token. "
+            "Run `adc canva auth-url` and `adc canva callback-server` again "
+            "to get a newly authorized token.[/yellow]"
+        )
+    blocked = missing_scopes(recommended_next)
+    if blocked:
+        console.print("\n[yellow]Next internal-test scopes not granted yet:[/yellow]")
+        console.print(" ".join(blocked))
+    else:
+        console.print("\n[green]Recommended internal-test scopes are present.[/green]")
+    design_blocked = missing_scopes(design_content_scopes)
+    if design_blocked:
+        console.print(
+            "\n[dim]Design content scopes not granted: "
+            f"{' '.join(design_blocked)}. If Canva's portal will not let you "
+            "enable design write, leave these off for now.[/dim]"
+        )
+    console.print(
+        "\n[dim]Magic Text still appears to require Canva UI/browser assistance; "
+        "Connect API covers OAuth, assets, metadata, and folder/design endpoints.[/dim]"
+    )
+
+
+@canva_cmd.command(name="designs")
+@click.option("--query", default=None, help="Optional Canva design search query.")
+@click.option("--limit", default=25, show_default=True, type=click.IntRange(1, 100))
+@click.option("--continuation", default=None, help="Continuation cursor from Canva.")
+@click.option("--json", "as_json", is_flag=True, help="Print raw Canva JSON.")
+def canva_designs_cmd(query: str | None, limit: int, continuation: str | None, as_json: bool):
+    """List Canva design metadata using the saved OAuth token."""
+    from strategy.canva_connect import CanvaConnectError, list_designs
+
+    try:
+        payload = list_designs(query=query, continuation=continuation, limit=limit)
+    except CanvaConnectError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise SystemExit(1)
+    if as_json:
+        _print_canva_json(payload)
+        return
+
+    table = Table(title="Canva Designs")
+    table.add_column("ID")
+    table.add_column("Title")
+    table.add_column("URL")
+    for item in _canva_payload_items(payload):
+        row = _canva_nested_item(item)
+        table.add_row(
+            str(row.get("id") or ""),
+            str(row.get("title") or row.get("name") or ""),
+            str(row.get("url") or row.get("edit_url") or row.get("thumbnail", {}).get("url") or ""),
+        )
+    console.print(table)
+    if payload.get("continuation"):
+        console.print(f"[dim]Continuation: {payload['continuation']}[/dim]")
+
+
+@canva_cmd.command(name="design")
+@click.argument("design_id")
+@click.option("--json", "as_json", is_flag=True, help="Print raw Canva JSON.")
+def canva_design_cmd(design_id: str, as_json: bool):
+    """Fetch one Canva design metadata record."""
+    from strategy.canva_connect import CanvaConnectError, get_design
+
+    try:
+        payload = get_design(design_id)
+    except CanvaConnectError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise SystemExit(1)
+    if as_json:
+        _print_canva_json(payload)
+        return
+    row = _canva_nested_item(payload)
+    console.print(f"[bold]ID:[/bold] {row.get('id', design_id)}")
+    console.print(f"[bold]Title:[/bold] {row.get('title') or row.get('name') or ''}")
+    console.print(f"[bold]URL:[/bold] {row.get('url') or row.get('edit_url') or ''}")
+
+
+@canva_cmd.command(name="upload-asset")
+@click.argument("file_path", type=click.Path(path_type=Path, exists=True, dir_okay=False))
+@click.option("--name", default=None, help="Canva asset name. Defaults to file name.")
+@click.option("--json", "as_json", is_flag=True, help="Print raw Canva JSON.")
+def canva_upload_asset_cmd(file_path: Path, name: str | None, as_json: bool):
+    """Upload one local image/video file as a Canva asset."""
+    from strategy.canva_connect import CanvaConnectError, upload_asset
+
+    try:
+        payload = upload_asset(file_path, name=name)
+    except CanvaConnectError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise SystemExit(1)
+    if as_json:
+        _print_canva_json(payload)
+        return
+    job = payload.get("job", payload)
+    asset = job.get("asset", {}) if isinstance(job, dict) else {}
+    console.print("[green]Canva asset upload started/succeeded.[/green]")
+    console.print(f"[bold]Job ID:[/bold] {job.get('id', '') if isinstance(job, dict) else ''}")
+    console.print(f"[bold]Status:[/bold] {job.get('status', '') if isinstance(job, dict) else ''}")
+    if asset.get("id"):
+        console.print(f"[bold]Asset ID:[/bold] {asset['id']}")
+
+
+@canva_cmd.command(name="asset")
+@click.argument("asset_id")
+@click.option("--json", "as_json", is_flag=True, help="Print raw Canva JSON.")
+def canva_asset_cmd(asset_id: str, as_json: bool):
+    """Fetch one Canva asset record."""
+    from strategy.canva_connect import CanvaConnectError, get_asset
+
+    try:
+        payload = get_asset(asset_id)
+    except CanvaConnectError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise SystemExit(1)
+    if as_json:
+        _print_canva_json(payload)
+        return
+    row = _canva_nested_item(payload)
+    console.print(f"[bold]ID:[/bold] {row.get('id', asset_id)}")
+    console.print(f"[bold]Name:[/bold] {row.get('name') or row.get('title') or ''}")
+
+
+@canva_cmd.command(name="folder-items")
+@click.argument("folder_id")
+@click.option("--limit", default=50, show_default=True, type=click.IntRange(1, 100))
+@click.option("--continuation", default=None, help="Continuation cursor from Canva.")
+@click.option("--json", "as_json", is_flag=True, help="Print raw Canva JSON.")
+def canva_folder_items_cmd(folder_id: str, limit: int, continuation: str | None, as_json: bool):
+    """List items in a known Canva folder ID."""
+    from strategy.canva_connect import CanvaConnectError, list_folder_items
+
+    try:
+        payload = list_folder_items(folder_id, continuation=continuation, limit=limit)
+    except CanvaConnectError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise SystemExit(1)
+    if as_json:
+        _print_canva_json(payload)
+        return
+    table = Table(title=f"Canva Folder Items: {folder_id}")
+    table.add_column("Type")
+    table.add_column("ID")
+    table.add_column("Name")
+    for item in _canva_payload_items(payload):
+        row = _canva_nested_item(item)
+        table.add_row(
+            str(item.get("type") or row.get("type") or ""),
+            str(row.get("id") or ""),
+            str(row.get("name") or row.get("title") or ""),
+        )
+    console.print(table)
+    if payload.get("continuation"):
+        console.print(f"[dim]Continuation: {payload['continuation']}[/dim]")
+
+
+@cli.command(name="scaffold-competitors")
+@click.option("--client", required=True, help="Client slug")
+@click.option(
+    "--names", default=None,
+    help='Comma-separated competitor names — only used when creating a NEW '
+    'file (e.g. "Stumptown Coffee Roasters, Onyx Coffee Lab")',
+)
+@click.option(
+    "--apply", "apply_changes", is_flag=True, default=False,
+    help="Write enrichment changes. Without it, enrichment is a dry run.",
+)
+def scaffold_competitors_cmd(client: str, names: str | None, apply_changes: bool):
+    """Create or enrich competitors.yaml with high-yield research defaults.
+
+    New file (--names given): full template per competitor with
+    youtube_search_queries + tiktok_search_queries pre-filled — search
+    queries beat brand handles ~17x on comment yield (Zoka: 16 vs 268).
+
+    Existing file: adds ONLY missing *_search_queries; never touches
+    handles, notes, or anything hand-written. Free, local, no API calls.
+    """
+    from strategy.competitor_scaffold import enrich_competitors, scaffold_competitors
+
+    client_dir = Path("clients") / client
+    if not client_dir.exists():
+        console.print(f"[red]Client '{client}' not found at {client_dir}[/red]")
+        raise SystemExit(1)
+
+    brand_name = client
+    brand_path = client_dir / "brand.yaml"
+    if brand_path.exists():
+        import yaml as _yaml
+        brand_data = _yaml.safe_load(brand_path.read_text(encoding="utf-8")) or {}
+        brand_name = brand_data.get("name") or client
+
+    comp_path = client_dir / "competitors.yaml"
+    if not comp_path.exists():
+        if not names:
+            console.print(
+                f"[red]No competitors.yaml yet — pass --names \"A, B, C\" to "
+                f"scaffold one.[/red]"
+            )
+            raise SystemExit(1)
+        path = scaffold_competitors(
+            client, brand_name,
+            [n.strip() for n in names.split(",") if n.strip()],
+        )
+        console.print(f"[green]Scaffolded {path}[/green]")
+        console.print(
+            "[dim]Fill in url per competitor, adjust type/priority/notes, "
+            "then run research.[/dim]"
+        )
+        return
+
+    changes = enrich_competitors(client, brand_name, apply=apply_changes)
+    if not changes:
+        console.print(
+            "[green]competitors.yaml already has search queries everywhere — "
+            "nothing to add.[/green]"
+        )
+        return
+    for change in changes:
+        console.print(f"  + {change}")
+    if apply_changes:
+        console.print(f"[green]Applied {len(changes)} addition(s) to {comp_path}[/green]")
+    else:
+        console.print(
+            f"[yellow]Dry run — re-run with --apply to write "
+            f"{len(changes)} addition(s).[/yellow]"
+        )
+
+
+@cli.command(name="suggest-amazon")
+@click.option("--client", required=True, help="Client slug")
+def suggest_amazon_cmd(client: str):
+    """Suggest Amazon listing candidates per competitor (never auto-adds).
+
+    One Exa query per competitor that has no amazon_urls (~$0.01 each).
+    Confirm a candidate is the competitor's OWN listing before adding it —
+    reseller lookalikes poison review mining (pipeline-rules rule 6).
+    """
+    from strategy.amazon_suggest import suggest_amazon_candidates
+    from strategy.competitor_research import load_competitors
+
+    competitors = load_competitors(client)
+    if not competitors:
+        console.print(f"[red]No competitors.yaml found for {client}.[/red]")
+        raise SystemExit(1)
+
+    missing = [c for c in competitors if not c.amazon_urls]
+    if not missing:
+        console.print("[green]Every competitor already has amazon_urls configured.[/green]")
+        return
+
+    table = Table(title="Amazon listing candidates — confirm before adding")
+    table.add_column("Competitor", style="cyan")
+    table.add_column("ASIN", style="yellow")
+    table.add_column("Found via", style="dim", max_width=40)
+    table.add_column("URL", style="green")
+
+    for competitor in missing:
+        with console.status(f"Searching listings for {competitor.name}..."):
+            try:
+                candidates = suggest_amazon_candidates(competitor.name)
+            except Exception as e:
+                console.print(
+                    f"[yellow]{competitor.name}: search failed "
+                    f"({type(e).__name__}: {str(e)[:60]})[/yellow]"
+                )
+                continue
+        if not candidates:
+            table.add_row(competitor.name, "-", "no product listings surfaced", "-")
+            continue
+        for candidate in candidates[:3]:
+            table.add_row(
+                competitor.name, candidate["asin"], candidate["context"], candidate["url"]
+            )
+
+    console.print(table)
+    console.print(
+        f"\n[bold]Next:[/bold] verify each candidate is the competitor's OWN listing "
+        f"(their brand on the listing, not a reseller), add confirmed URLs under "
+        f"`amazon_urls:` in clients/{client}/competitors.yaml, then run "
+        f"[cyan]adc research-amazon --client {client}[/cyan]."
+    )
 
 
 @cli.command(name="research-social")
@@ -2808,6 +4258,8 @@ def research_social(
         SocialCommentBundle,
         _research_dir,
         cache_bundle,
+        cache_diagnostic,
+        clear_diagnostic,
         write_voc_dump,
     )
 
@@ -2850,12 +4302,21 @@ def research_social(
             plan.append(("instagram", c, c.instagram_handle or "explicit posts"))
         if not skip_youtube and (
             c.youtube_handle or c.youtube_channel_id or c.youtube_video_ids
+            or c.youtube_search_queries
         ):
-            plan.append((
-                "youtube",
-                c,
-                c.youtube_handle or c.youtube_channel_id or "explicit videos",
-            ))
+            if c.youtube_video_ids:
+                yt_source = f"{len(c.youtube_video_ids)} explicit video ID(s)"
+            elif c.youtube_search_queries:
+                yt_qs = ", ".join(c.youtube_search_queries[:2])
+                yt_more = (
+                    f" +{len(c.youtube_search_queries) - 2}"
+                    if len(c.youtube_search_queries) > 2
+                    else ""
+                )
+                yt_source = f"search: {yt_qs}{yt_more}"
+            else:
+                yt_source = c.youtube_handle or c.youtube_channel_id
+            plan.append(("youtube", c, yt_source))
 
     if not plan:
         console.print(
@@ -2873,6 +4334,15 @@ def research_social(
         plan_table.add_row(platform, c.name, str(source))
     console.print(plan_table)
 
+    from strategy.research_preflight import social_preflight_lines
+    for line in social_preflight_lines(competitors, client):
+        if line.startswith("VERDICT") and ("LOW" in line or "nothing configured" in line):
+            console.print(f"[bold yellow]{line}[/bold yellow]")
+        elif line.startswith("  weak"):
+            console.print(f"[dim]{line}[/dim]")
+        else:
+            console.print(line)
+
     # ─── Execute ─────────────────────────────────────────────────────────
     results_table = Table(title="Results")
     results_table.add_column("Platform", style="cyan")
@@ -2884,7 +4354,7 @@ def research_social(
     platforms_touched: set[str] = set()
     total_comments = 0
 
-    for platform, competitor, _source in plan:
+    for platform, competitor, source in plan:
         cache_dir = _research_dir(client, platform)
         already_cached = (
             any(cache_dir.glob(f"{competitor.slug}-*.json"))
@@ -2942,6 +4412,23 @@ def research_social(
             comment_count += len(b.comments)
         total_comments += comment_count
         platforms_touched.add(platform)
+        if comment_count == 0:
+            notes = "; ".join(
+                b.notes for b in bundles if getattr(b, "notes", "")
+            )
+            cache_diagnostic(
+                client,
+                platform,
+                competitor.slug,
+                competitor.name,
+                str(source),
+                status,
+                bundles=len(bundles),
+                comments=comment_count,
+                notes=notes,
+            )
+        else:
+            clear_diagnostic(client, platform, competitor.slug)
 
         results_table.add_row(
             platform,
@@ -3101,3 +4588,3033 @@ def research_web(client: str, competitors: str | None, category: str | None,
     )
 
 
+@cli.command()
+@click.option("--category", default=None, help="Filter by category: headline, comparison, ugc, etc.")
+@click.option("--product-type", default=None, help="Filter by product type: apparel, food, etc.")
+@click.option("--source", default=None, help="Filter by source dir: cooper, nanobana, custom")
+@click.option("--platform", default=None, help="Filter by platform: meta, tiktok")
+def browse_library(category: str | None, product_type: str | None,
+                   source: str | None, platform: str | None):
+    """Browse the prompt library with optional filters."""
+    from models.library import list_prompts, list_categories
+
+    prompts = list_prompts(
+        category=category,
+        product_type=product_type,
+        platform=platform,
+        source_dir=source,
+    )
+
+    if not prompts:
+        console.print("[yellow]No prompts found matching filters.[/yellow]")
+        console.print(f"[dim]Available categories: {', '.join(list_categories())}[/dim]")
+        return
+
+    table = Table(title=f"Prompt Library ({len(prompts)} prompts)")
+    table.add_column("ID", style="cyan", max_width=30)
+    table.add_column("Name", style="green", max_width=25)
+    table.add_column("Category", style="yellow")
+    table.add_column("Products", style="dim", max_width=20)
+    table.add_column("Tags", style="dim", max_width=30)
+
+    for p in prompts:
+        table.add_row(
+            p.id,
+            p.name,
+            p.category,
+            ", ".join(p.product_types[:3]),
+            ", ".join(p.tags[:4]),
+        )
+
+    console.print(table)
+    console.print(f"\n[green]To use a prompt:[/green]")
+    console.print("  adc use-prompt --client <client> --product <product> --prompt <id>")
+
+
+@cli.command(name="scrape-classifications")
+@click.option("--library", required=True,
+              help="Library to scrape Content Style for (e.g. 'standard')")
+@click.option("--max-per-brand", default=30, type=int,
+              help="Cap on ads scraped per brand. Default 30.")
+@click.option("--no-resume", is_flag=True,
+              help="Re-scrape brands that are already in the cache.")
+@click.option("--start-at", default=None,
+              help="Brand_id to start at (skip earlier brands; useful for resuming).")
+@click.option("--connect-url", default=None,
+              help="Connect to a running Chrome via CDP (e.g. http://localhost:9222). "
+                   "Reuses your existing login. Skip this to launch a dedicated Chrome.")
+def scrape_classifications(library: str, max_per_brand: int, no_resume: bool,
+                           start_at: str | None, connect_url: str | None):
+    """Drive Chrome via Playwright to scrape Foreplay's Content Style classifications.
+
+    Opens a visible browser using a dedicated profile (~/.foreplay-scraper-profile).
+    First run requires manual Foreplay login. Subsequent runs auto-authenticate.
+    Cache lands at references/swipe/<library>/_classifications-cache.json and is
+    written after each brand so the run is resumable.
+    """
+    from strategy.foreplay_browser_scraper import scrape_all
+
+    cache = scrape_all(
+        library,
+        max_per_brand=max_per_brand,
+        resume=not no_resume,
+        start_at=start_at,
+        connect_url=connect_url,
+    )
+    n_brands = len(cache.get("brands") or {})
+    n_records = sum(len(b.get("records") or []) for b in (cache.get("brands") or {}).values())
+    n_useful = sum(
+        1 for b in (cache.get("brands") or {}).values()
+        for r in (b.get("records") or [])
+        if r.get("content_style")
+    )
+    console.print(
+        f"[green]Done. {n_brands} brands, {n_records} total ads scraped, "
+        f"{n_useful} with content_style.[/green]"
+    )
+    console.print(
+        f"[dim]Cache: references/swipe/{library}/_classifications-cache.json[/dim]"
+    )
+
+
+@cli.command(name="swipe-sync")
+@click.option("--library", required=True,
+              help="Swipe library to sync: psychology, standard, trending")
+@click.option("--category", default=None,
+              help="Expert libraries only: optional single category. Omit to sync all.")
+@click.option("--max-per-category", default=10, type=int,
+              help="Expert libraries: cap on ads pulled per board. Default 10.")
+@click.option("--max-per-niche", default=30, type=int,
+              help="Discovery libraries: ads fetched per niche before bucketing. Default 30.")
+@click.option("--force/--no-force", default=False,
+              help="Re-download ads that already exist on disk.")
+def swipe_sync(library: str, category: str | None, max_per_category: int,
+               max_per_niche: int, force: bool):
+    """Sync ads from Foreplay into references/swipe/<library>/<category>/."""
+    from strategy.foreplay_sync import sync_library
+
+    def progress(stats, ad, msg):
+        prefix = f"[{stats.library}/{stats.category}]"
+        console.print(f"[dim]{prefix}[/dim] {msg}")
+
+    cats = [category] if category else None
+    results = sync_library(
+        library,
+        categories=cats,
+        max_per_category=max_per_category,
+        max_per_niche=max_per_niche,
+        force=force,
+        on_progress=progress,
+    )
+
+    table = Table(title=f"swipe-sync: {library}")
+    table.add_column("Category", style="cyan")
+    table.add_column("Fetched", justify="right")
+    table.add_column("Downloaded", justify="right", style="green")
+    table.add_column("Skipped", justify="right", style="yellow")
+    table.add_column("Errors", justify="right", style="red")
+    for s in results:
+        table.add_row(s.category, str(s.fetched), str(s.downloaded),
+                      str(s.skipped), str(s.errors))
+    console.print(table)
+
+
+@cli.command(name="competitor-ads")
+@click.option("--client", required=True,
+              help="Client slug (must have a competitors.yaml).")
+@click.option("--competitor", default=None,
+              help="Optional: pull one competitor slug only. Omit to pull "
+                   "every competitor with a foreplay_brand_id.")
+@click.option("--force/--no-force", default=False,
+              help="Re-download ads that already exist on disk.")
+def competitor_ads_cmd(client: str, competitor: str | None, force: bool):
+    """Pull live image ads from Foreplay for a client's competitors.
+
+    Reads `clients/<client>/competitors.yaml`. For each competitor that has a
+    `foreplay_brand_id`, fetches two buckets — proven (>=14d, longest-running)
+    and fresh (<14d, recent tests) — dedups by ad_id, downloads statics +
+    rich sidecars to `clients/<client>/research/competitor-ads/<competitor>/`,
+    and regenerates an `_index.md` ranked by days_running.
+
+    Designed for a weekly cron: idempotent (only net-new ads downloaded).
+    """
+    from strategy.competitor_ads import pull_all_competitors_for_client
+
+    def progress(stats, ad, msg):
+        prefix = f"[{stats.competitor}]"
+        console.print(f"[dim]{prefix}[/dim] {msg}")
+
+    only = [competitor] if competitor else None
+    results = pull_all_competitors_for_client(
+        client, only=only, force=force, on_progress=progress,
+    )
+
+    if not results:
+        if competitor:
+            console.print(
+                f"[yellow]No competitor '{competitor}' in "
+                f"clients/{client}/competitors.yaml[/yellow]"
+            )
+        else:
+            console.print(
+                f"[yellow]No competitors found in clients/{client}/competitors.yaml. "
+                f"Add competitors with a `foreplay_brand_id:` field.[/yellow]"
+            )
+        return
+
+    table = Table(title=f"competitor-ads: {client}")
+    table.add_column("Competitor", style="cyan")
+    table.add_column("Proven", justify="right")
+    table.add_column("Fresh", justify="right")
+    table.add_column("Downloaded", justify="right", style="green")
+    table.add_column("Skipped", justify="right", style="yellow")
+    table.add_column("Errors", justify="right", style="red")
+    table.add_column("Note", style="dim")
+    for s in results:
+        table.add_row(s.competitor, str(s.proven_fetched), str(s.fresh_fetched),
+                      str(s.downloaded), str(s.skipped), str(s.errors), s.note)
+    console.print(table)
+
+
+# ─── AI Ad Creation: Menu + Prompts ─────────────────────────────────────────
+
+
+AI_ADS_DIR = Path("ai-ads")
+
+
+def _truncate(s: str, n: int) -> str:
+    s = (s or "").replace("\n", " ").strip()
+    return s if len(s) <= n else s[: n - 3] + "..."
+
+
+@cli.command()
+@click.option("--client", required=True, help="Client slug")
+@click.option("--product", default=None, help="Optional: filter to a single product slug")
+def menu(client: str, product: str | None):
+    """Show all briefs for a client as a pickable menu."""
+    from models.loader import load_all_briefs
+
+    briefs = load_all_briefs(client)
+    if product:
+        briefs = [b for b in briefs if b.product == product]
+
+    if not briefs:
+        msg = f"No briefs found for '{client}'"
+        if product:
+            msg += f" / product '{product}'"
+        console.print(f"[yellow]{msg}.[/yellow]")
+        console.print(f"[dim]Run: adc brief --client {client} --product <product-slug>[/dim]")
+        return
+
+    table = Table(title=f"Brief Menu — {client}" + (f" / {product}" if product else ""))
+    table.add_column("#", style="bold cyan", justify="right")
+    table.add_column("Product", style="green", max_width=20)
+    table.add_column("Slot", style="yellow", justify="right")
+    table.add_column("Hook", style="white", max_width=60)
+    table.add_column("Angle", style="magenta", max_width=35)
+    table.add_column("Mechanic", style="blue", max_width=30)
+    table.add_column("Format", style="dim", max_width=30)
+    table.add_column("ID", style="dim")
+
+    for i, b in enumerate(briefs, 1):
+        table.add_row(
+            str(i),
+            b.product,
+            str(b.slot) if b.slot else "—",
+            _truncate(b.hook, 60),
+            _truncate(b.angle, 35),
+            _truncate(b.creative_mechanic, 30),
+            _truncate(b.visual_format, 30),
+            b.brief_id[-6:],
+        )
+
+    console.print(table)
+    console.print(
+        f"\n[green]Pick the ones you want and run:[/green]\n"
+        f"  adc prompts --client {client} --pick 1,3,5"
+    )
+
+
+def _format_notes_header(
+    brief: "CreativeBrief", product: "Product", aspect_ratio: str, image_refs: list[str]
+) -> str:
+    lines = [
+        "***** NOTES *****",
+        f"Brief:           {brief.brief_id}",
+        f"Product:         {product.name}",
+        f"Slot:            {brief.slot or '—'} / {brief.hook_type or 'unspecified'}",
+        f"Mechanic:        {brief.creative_mechanic or '—'}",
+        f"Format:          {brief.visual_format or '—'}",
+        f"Aspect ratio:    {aspect_ratio}",
+        f"Model:           fal-ai/nano-banana-2/edit",
+        f"Platform:        {brief.target_platform}",
+    ]
+    if image_refs:
+        lines.append(f"Product images:  {image_refs[0]}")
+        for ref in image_refs[1:]:
+            lines.append(f"                 {ref}")
+    else:
+        lines.append("Product images:  (none — add image_url or image_path to the product YAML)")
+    lines.append(f"Generated:       {date.today().isoformat()}")
+    if getattr(brief, "campaign_name", ""):
+        lines.append(f"Campaign name:   {brief.campaign_name}")
+    lines.append("***** END NOTES *****")
+    return "\n".join(lines)
+
+
+def _collect_product_image_refs(product, client_slug: str) -> list[str]:
+    refs: list[str] = []
+    if product.image_url:
+        refs.append(product.image_url)
+    if product.image_path:
+        local = Path("clients") / client_slug / product.image_path
+        refs.append(str(local) if local.exists() else product.image_path)
+    refs.extend(product.additional_images or [])
+    return refs
+
+
+@cli.command()
+@click.option("--client", required=True, help="Client slug")
+@click.option("--pick", required=True, help="Comma-separated menu numbers from `adc menu`, e.g. 1,3,5")
+@click.option("--product", default=None, help="Optional: scope to a single product (must match `adc menu --product`)")
+@click.option(
+    "--creative-direction",
+    default="",
+    help="Optional pre-generation creative directive applied to every brief. "
+    "Example: 'two callouts in primary brand color + accent, text bubble at top'. "
+    "Becomes the highest-priority constraint in the NB2 prompt-writer.",
+)
+@click.option(
+    "--offer",
+    default="NONE",
+    show_default=True,
+    help="Offer code for the Meta ad naming taxonomy (slot 9). E.g. FREESHIP, "
+    "BFCM25, 20OFF. Alphanumeric only, capped at 12 chars. Default NONE.",
+)
+def prompts(client: str, pick: str, product: str | None, creative_direction: str, offer: str):
+    """Generate fal.ai prompts for the briefs you picked off `adc menu`."""
+    from models.loader import (
+        load_all_briefs,
+        load_brand,
+        load_product_by_name,
+        load_avatar,
+    )
+    from generators.prompt_engine import prompt_from_brief, infer_aspect_ratio
+
+    try:
+        picks = [int(x.strip()) for x in pick.split(",") if x.strip()]
+    except ValueError:
+        console.print("[red]Invalid --pick. Use comma-separated integers, e.g. 1,3,5[/red]")
+        raise SystemExit(1)
+
+    briefs = load_all_briefs(client)
+    if product:
+        briefs = [b for b in briefs if b.product == product]
+    if not briefs:
+        console.print(f"[yellow]No briefs found for '{client}'.[/yellow]")
+        raise SystemExit(1)
+
+    bad = [n for n in picks if n < 1 or n > len(briefs)]
+    if bad:
+        console.print(f"[red]Out-of-range picks: {bad}. Menu has {len(briefs)} briefs.[/red]")
+        raise SystemExit(1)
+
+    selected = [briefs[n - 1] for n in picks]
+
+    out_dir = AI_ADS_DIR / client / "prompts"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    brand = load_brand(client)
+    avatar = load_avatar(client)
+    product_cache: dict[str, object] = {}
+
+    for brief in selected:
+        if brief.product not in product_cache:
+            product_cache[brief.product] = load_product_by_name(client, brief.product)
+        prod = product_cache[brief.product]
+
+        aspect_ratio = infer_aspect_ratio(brief)
+        image_refs = _collect_product_image_refs(prod, client)
+
+        # Build campaign_name eagerly so it lands in the notes header and a sidecar.
+        if not brief.campaign_name:
+            try:
+                from strategy.naming import build_campaign_name
+                brief.campaign_name = build_campaign_name(
+                    brief,
+                    brand,
+                    offer=offer,
+                    iteration=1,
+                    source="AI",
+                )
+            except (ValueError, Exception):
+                pass  # brand.code missing → continue without name
+
+        with console.status(f"Writing prompt for slot {brief.slot} — {brief.brief_id[-6:]}..."):
+            prompt_text = prompt_from_brief(
+                brief=brief,
+                brand=brand,
+                product=prod,
+                avatar=avatar,
+                aspect_ratio=aspect_ratio,
+                creative_direction=creative_direction,
+            )
+
+        notes = _format_notes_header(brief, prod, aspect_ratio, image_refs)
+        out_path = out_dir / f"{brief.brief_id}.txt"
+        out_path.write_text(notes + "\n\n" + prompt_text + "\n", encoding="utf-8")
+        # Sidecar for easy copy/paste into Meta Ads Manager.
+        if brief.campaign_name:
+            (out_dir / f"{brief.brief_id}_campaign.txt").write_text(
+                brief.campaign_name + "\n", encoding="utf-8"
+            )
+        console.print(f"[green]\\[OK][/green] {out_path}")
+
+    console.print(
+        f"\n[green]Wrote {len(selected)} prompt(s) to {out_dir}/[/green]\n"
+        f"[dim]Paste each .txt into fal.ai along with the product images listed in its NOTES block.[/dim]"
+    )
+
+    from strategy.cost_tracker import log_cost
+    log_cost(client, "adc prompts", multiplier=len(selected),
+             note=f"{len(selected)} prompt(s)")
+
+
+@cli.command()
+@click.option("--client", required=True, help="Client slug")
+@click.option("--pick", required=True, help="Comma-separated menu numbers from `adc menu`, e.g. 1,3,5")
+@click.option("--product", default=None, help="Optional: scope to a single product")
+@click.option("--num-images", default=1, type=int, help="How many image variations per pick (default 1)")
+@click.option("--aspect-ratio", default=None, help="Override aspect ratio (default: inferred from brief)")
+@click.option("--thinking", default="disabled", help="NB2 thinking level: disabled, low, medium, high")
+@click.option(
+    "--include-alternates",
+    is_flag=True,
+    default=False,
+    help="Generate the primary visual_format PLUS each visual_format_alternatives "
+    "entry (3 images per brief instead of 1). Same psychological mechanic, "
+    "different production styles — useful for A/B/C variance testing.",
+)
+@click.option(
+    "--reference",
+    "reference_template_id",
+    default=None,
+    help="ART-DIRECTED single-reference mode. Pass a template id from "
+    "`adc list-templates` (e.g. 'us-vs-them-price-comparison-panels'). "
+    "Generation uses ONLY that one template + its source reference image — "
+    "no swipe library, no Nanobana, no averaging. Output is grounded in one "
+    "specific hand-picked ad. Cleanest path when you want to mimic a "
+    "specific aesthetic.",
+)
+@click.option(
+    "--creative-direction",
+    default="",
+    help="Optional pre-generation creative directive applied to every brief. "
+    "Example: 'two callouts in primary brand color + accent, text bubble at top'. "
+    "Becomes the highest-priority constraint in the NB2 prompt-writer.",
+)
+@click.option(
+    "--offer",
+    default="NONE",
+    show_default=True,
+    help="Offer code for the Meta ad naming taxonomy (slot 9). E.g. FREESHIP, "
+    "BFCM25, 20OFF. Alphanumeric only, capped at 12 chars. Default NONE.",
+)
+@click.option(
+    "--engine",
+    type=click.Choice(["nb2", "higgsfield-soul", "hf-web"]),
+    default="nb2",
+    show_default=True,
+    help=(
+        "Image-generation engine. "
+        "'nb2' = fal.ai Nano Banana 2 (existing, product-aware, multi-image). "
+        "'higgsfield-soul' = Higgs Field soul_2 with each persona's trained "
+        "Soul Character + PIL text overlay (identity-locked face, phone-camera "
+        "aesthetic). Requires HF_CREDENTIALS in .env and a 'ready' Soul on each "
+        "persona's avatar YAML. Ignores --reference and the product image — "
+        "soul_2 doesn't accept multi-image edits. "
+        "'hf-web' = Higgsfield web nano_banana_flash (the same edit endpoint "
+        "as the working remix --engine hf-web path). REQUIRES --reference. "
+        "Best for cloning a specific reference layout faithfully on complex "
+        "ads (us-vs-them comparison panels, multi-callout). Uses HF plan "
+        "credits, not fal credits. See docs/hf-web-engine.md for .env setup."
+    ),
+)
+@click.option(
+    "--fallback-engine",
+    type=click.Choice(["nb2"]),
+    default=None,
+    help=(
+        "If --engine higgsfield-soul fails because of missing API credits, "
+        "automatically retry the run with this engine instead of aborting. "
+        "Useful when the dashboard wants graceful degradation."
+    ),
+)
+@click.option(
+    "--legacy-product-first",
+    is_flag=True,
+    default=False,
+    help=(
+        "Escape hatch for the art-directed (--reference) path: revert to "
+        "the pre-fix image_urls ordering of [product, reference] where the "
+        "product is treated as the canvas. New default is [reference, product] "
+        "which clones the reference's layout much more faithfully. Use this "
+        "flag only if you need to reproduce historic outputs or you find a "
+        "case where the new default doesn't work for your reference."
+    ),
+)
+def generate(client: str, pick: str, product: str | None, num_images: int,
+             aspect_ratio: str | None, thinking: str,
+             include_alternates: bool, reference_template_id: str | None,
+             creative_direction: str, offer: str,
+             engine: str, fallback_engine: str | None,
+             legacy_product_first: bool):
+    """Generate finished ad images for picked briefs — writes prompts AND calls fal.ai."""
+    from models.loader import (
+        load_all_briefs,
+        load_brand,
+        load_product_by_name,
+        load_avatar,
+    )
+    from generators.image_generator import (
+        generate_from_brief,
+        generate_from_brief_and_template,
+        generate_from_brief_and_template_hf_web,
+    )
+    from generators.prompt_engine import infer_aspect_ratio
+
+    # hf-web engine requires --reference. It's an edit operation, not a
+    # from-scratch generation; without a reference there's nothing to edit.
+    if engine == "hf-web" and not reference_template_id:
+        console.print(
+            "[red]--engine hf-web requires --reference TEMPLATE_ID. "
+            "It edits the reference image into a brief-driven variant; "
+            "without a reference there's nothing to edit. Either pass "
+            "--reference, or switch to --engine nb2 / higgsfield-soul.[/red]"
+        )
+        raise SystemExit(1)
+
+    try:
+        picks = [int(x.strip()) for x in pick.split(",") if x.strip()]
+    except ValueError:
+        console.print("[red]Invalid --pick. Use comma-separated integers, e.g. 1,3,5[/red]")
+        raise SystemExit(1)
+
+    briefs = load_all_briefs(client)
+    if product:
+        briefs = [b for b in briefs if b.product == product]
+    if not briefs:
+        console.print(f"[yellow]No briefs found for '{client}'.[/yellow]")
+        raise SystemExit(1)
+
+    bad = [n for n in picks if n < 1 or n > len(briefs)]
+    if bad:
+        console.print(f"[red]Out-of-range picks: {bad}. Menu has {len(briefs)} briefs.[/red]")
+        raise SystemExit(1)
+
+    selected = [briefs[n - 1] for n in picks]
+
+    prompts_dir = AI_ADS_DIR / client / "prompts"
+    images_dir = AI_ADS_DIR / client / "images"
+    prompts_dir.mkdir(parents=True, exist_ok=True)
+    images_dir.mkdir(parents=True, exist_ok=True)
+
+    brand = load_brand(client)
+    avatar = load_avatar(client)
+    product_cache: dict[str, object] = {}
+
+    # Build the list of (brief, format_label, format_value, variant_suffix) tuples to
+    # generate. Without --include-alternates, each brief produces ONE generation
+    # using its primary visual_format. With --include-alternates, each brief
+    # produces (1 + len(alternates)) generations, one per visual format option.
+    generation_jobs: list[tuple[object, str, str, str]] = []
+    for brief in selected:
+        primary_fmt = brief.visual_format or ""
+        generation_jobs.append((brief, "primary", primary_fmt, ""))
+        if include_alternates:
+            alts = list(brief.visual_format_alternatives or [])
+            for i, alt_fmt in enumerate(alts, 1):
+                generation_jobs.append((brief, f"alt{i}", alt_fmt, f"_alt{i}"))
+
+    total_jobs = len(generation_jobs)
+    total_images_estimate = total_jobs * num_images
+    if include_alternates:
+        console.print(
+            f"[dim]--include-alternates: generating {total_jobs} variant(s) "
+            f"across {len(selected)} brief(s) × {num_images} image(s) each "
+            f"= {total_images_estimate} total image(s)[/dim]"
+        )
+
+    for brief, variant_label, variant_format, variant_suffix in generation_jobs:
+        if brief.product not in product_cache:
+            product_cache[brief.product] = load_product_by_name(client, brief.product)
+        prod = product_cache[brief.product]
+
+        # For alternate generations, clone the brief with the alternate format
+        # substituted into visual_format. The mechanic stays the same — that's
+        # the whole point of variance testing.
+        active_brief = brief
+        if variant_label != "primary" and variant_format:
+            active_brief = brief.model_copy(update={"visual_format": variant_format})
+
+        ar = aspect_ratio or infer_aspect_ratio(active_brief)
+        image_refs = _collect_product_image_refs(prod, client)
+
+        # Filename gets the variant suffix so each generation is distinct
+        # on disk even though they share a brief_id.
+        original_id = brief.brief_id
+        if variant_suffix:
+            active_brief = active_brief.model_copy(
+                update={"brief_id": f"{original_id}{variant_suffix}"}
+            )
+
+        # Resolve the reference image path for art-directed mode by walking
+        # the templates dir to find the matching id, then mapping to its
+        # raw/ source image.
+        reference_image_path = None
+        if reference_template_id:
+            import yaml as _yaml
+            templates_root = Path("clients") / client / "templates"
+            for yaml_file in templates_root.rglob("*.yaml"):
+                try:
+                    with open(yaml_file, encoding="utf-8") as f:
+                        td = _yaml.safe_load(f) or {}
+                    if td.get("id") == reference_template_id:
+                        # Stem maps to raw/<category>/<stem>.<ext>
+                        category = yaml_file.parent.name
+                        stem = yaml_file.stem
+                        raw_dir = Path("clients") / client / "reference_ads" / "raw" / category
+                        for ext in (".png", ".jpg", ".jpeg", ".webp"):
+                            candidate = raw_dir / f"{stem}{ext}"
+                            if candidate.exists():
+                                reference_image_path = candidate
+                                break
+                        if reference_image_path:
+                            break
+                except Exception:
+                    continue
+            if not reference_image_path:
+                console.print(
+                    f"[red]Reference template '{reference_template_id}' not found. "
+                    f"Run `adc list-templates --client {client}` to see available ids.[/red]"
+                )
+                raise SystemExit(1)
+
+        with console.status(
+            f"Slot {brief.slot} ({original_id[-6:]}) {variant_label} "
+            f"— writing prompt + generating {num_images} image(s)"
+            f" via [bold]{engine}[/bold]..."
+        ):
+            # Higgs Field Soul mode ignores --reference (soul_2 doesn't take
+            # template images the way NB2 does). Route everything through
+            # generate_from_brief() — its dispatcher handles the HF path +
+            # credit-error fallback.
+            if engine == "higgsfield-soul":
+                if reference_template_id:
+                    console.print(
+                        f"[yellow]Note: --reference is ignored when --engine "
+                        f"higgsfield-soul. The trained Soul Character supplies "
+                        f"the persona identity; templates aren't applicable.[/yellow]"
+                    )
+                prompt_text, results = generate_from_brief(
+                    brief=active_brief,
+                    brand=brand,
+                    product=prod,
+                    avatar=avatar,
+                    client_slug=client,
+                    output_dir=images_dir,
+                    num_images=num_images,
+                    aspect_ratio=ar,
+                    thinking_level=thinking,
+                    creative_direction=creative_direction,
+                    offer=offer,
+                    engine=engine,
+                    fallback_engine=fallback_engine,
+                )
+            elif reference_template_id:
+                # hf-web engine takes the same args minus thinking_level
+                # (nano_banana_flash has no thinking knob) and minus
+                # legacy_product_first (no fal NB2 ordering semantics).
+                if engine == "hf-web":
+                    prompt_text, results = generate_from_brief_and_template_hf_web(
+                        brief=active_brief,
+                        template_id=reference_template_id,
+                        reference_image_path=reference_image_path,
+                        brand=brand,
+                        product=prod,
+                        avatar=avatar,
+                        client_slug=client,
+                        output_dir=images_dir,
+                        num_images=num_images,
+                        aspect_ratio=ar,
+                        creative_direction=creative_direction,
+                        offer=offer,
+                    )
+                else:
+                    from generators.image_generator import generate_from_brief_and_template
+                    prompt_text, results = generate_from_brief_and_template(
+                        brief=active_brief,
+                        template_id=reference_template_id,
+                        reference_image_path=reference_image_path,
+                        brand=brand,
+                        product=prod,
+                        avatar=avatar,
+                        client_slug=client,
+                        output_dir=images_dir,
+                        num_images=num_images,
+                        aspect_ratio=ar,
+                        thinking_level=thinking,
+                        creative_direction=creative_direction,
+                        offer=offer,
+                        legacy_product_first=legacy_product_first,
+                    )
+            else:
+                prompt_text, results = generate_from_brief(
+                    brief=active_brief,
+                    brand=brand,
+                    product=prod,
+                    avatar=avatar,
+                    client_slug=client,
+                    output_dir=images_dir,
+                    num_images=num_images,
+                    aspect_ratio=ar,
+                    thinking_level=thinking,
+                    creative_direction=creative_direction,
+                    offer=offer,
+                    engine=engine,
+                    fallback_engine=fallback_engine,
+                )
+
+        local_paths = [str(r.local_path) for r in results if r.local_path]
+        seed = results[0].seed if results else None
+
+        notes = _format_notes_header(active_brief, prod, ar, image_refs)
+        # Annotate the variant in the notes header so disk artifacts are self-documenting
+        notes = f"# VARIANT: {variant_label} ({variant_format[:80]})\n" + notes
+        if local_paths:
+            extra = ["", "***** GENERATED *****"]
+            extra.append(f"Seed:            {seed}")
+            extra.append(f"Output image(s): {local_paths[0]}")
+            for p in local_paths[1:]:
+                extra.append(f"                 {p}")
+            extra.append("***** END GENERATED *****")
+            notes = notes + "\n" + "\n".join(extra)
+
+        prompt_path = prompts_dir / f"{active_brief.brief_id}.txt"
+        prompt_path.write_text(notes + "\n\n" + prompt_text + "\n", encoding="utf-8")
+
+        console.print(f"[green]\\[OK][/green] {prompt_path}")
+        for p in local_paths:
+            console.print(f"       {p}")
+
+    console.print(
+        f"\n[green]Generated {total_jobs} variant(s) × {num_images} image(s) "
+        f"= {total_images_estimate} image(s) to {images_dir}/[/green]"
+    )
+
+    from strategy.cost_tracker import log_cost
+    log_cost(client, "adc generate", multiplier=total_images_estimate,
+             note=f"{total_images_estimate} image(s)"
+             + (f" ({total_jobs} variants, alternates included)" if include_alternates else ""))
+
+
+# ─── PYNK-style text-only generation (B variant) ────────────────────────────
+# DEPRECATED 2026-05-22 — kept for back-compat but no dashboard wiring and no
+# active callers. The drift-testing experiment this was built for is complete;
+# `adc generate --reference X --engine hf-web` produces better reference-
+# faithful output. Remove after the next operator confirms they aren't using it.
+
+
+@cli.command(name="generate-text", deprecated=True)
+@click.option("--client", required=True, help="Client slug")
+@click.option(
+    "--template",
+    "template_id",
+    default=None,
+    help="Cooper template ID (e.g. cooper-11-pull-quote-review). "
+         "Required unless --list-templates is set.",
+)
+@click.option(
+    "--product",
+    "product_name",
+    default=None,
+    help="Product name. If omitted and --brief is set, uses the brief's product.",
+)
+@click.option(
+    "--brief",
+    "brief_id",
+    default=None,
+    help="Brief ID (e.g. brf_abc123). If provided, headlines/benefits/etc "
+         "come from the brief. Otherwise a stub brief is built from product data.",
+)
+@click.option(
+    "--num-images",
+    type=int,
+    default=1,
+    show_default=True,
+    help="Number of images per template",
+)
+@click.option(
+    "--aspect",
+    "aspect_override",
+    default=None,
+    help="Override aspect ratio. Default: locked from template.",
+)
+@click.option(
+    "--list-templates",
+    "list_only",
+    is_flag=True,
+    help="List available Cooper templates and exit.",
+)
+def generate_text_cmd(
+    client: str,
+    template_id: str | None,
+    product_name: str | None,
+    brief_id: str | None,
+    num_images: int,
+    aspect_override: str | None,
+    list_only: bool,
+):
+    """[DEPRECATED 2026-05-22] PYNK-style text-only generation (B-variant).
+
+    Kept for back-compat only. Use `adc generate --engine hf-web --reference X`
+    for reference-faithful single-brief generation, or `adc generate` (no
+    --reference) for text-only NB2 generation.
+
+    Original docs:
+    Sends ONLY the product image to fal.ai — no reference ad image. Uses
+    Cooper-library templates with verbose layout directives plus a Product
+    Anchor preamble. Outputs to ai-ads/<client>/text-only/<brief_id>_<ts>/.
+
+    The reference-based `adc generate` command is untouched — this is a
+    parallel track for testing whether text-only beats reference-based on
+    layout drift.
+
+    Examples:
+      adc generate-text --client pynk --list-templates
+      adc generate-text --client pynk --template cooper-11-pull-quote-review --product "PYNK Can"
+      adc generate-text --client pynk --template cooper-07-us-vs-them --brief brf_abc123
+    """
+    from generators.pynk_text_filler import (
+        load_cooper_template,
+        list_cooper_templates,
+        fill_template,
+    )
+    from generators.pynk_text_client import (
+        generate_text_only_ad,
+        build_run_dir,
+        build_template_subdir,
+        parse_template_number,
+    )
+    from models.loader import (
+        load_brand,
+        load_product_by_name,
+        load_avatar,
+        load_all_briefs,
+    )
+
+    library_root = Path("prompts/library")
+
+    # --list-templates short-circuit
+    if list_only:
+        templates = list_cooper_templates(library_root)
+        if not templates:
+            console.print("[yellow]No Cooper templates found at prompts/library/cooper/.[/yellow]")
+            return
+        console.print(f"\n[bold]{len(templates)} Cooper templates available:[/bold]\n")
+        for t in templates:
+            aspects = "/".join(t.get("aspect_ratios") or [])
+            console.print(
+                f"  [cyan]{t['id']:42}[/cyan] {aspects:10}  {t.get('name', '')}"
+            )
+        return
+
+    if not template_id:
+        console.print("[red]--template is required (or use --list-templates to browse).[/red]")
+        raise SystemExit(1)
+
+    # Resolve brief
+    brief = None
+    if brief_id:
+        briefs = load_all_briefs(client)
+        for b in briefs:
+            if b.brief_id == brief_id:
+                brief = b
+                break
+        if not brief:
+            console.print(f"[red]Brief not found: {brief_id}[/red]")
+            console.print(f"[dim]Run `adc menu --client {client}` to list briefs.[/dim]")
+            raise SystemExit(1)
+
+    # Resolve product name
+    resolved_product_name = product_name or (brief.product if brief else None)
+    if not resolved_product_name:
+        console.print("[red]Must specify --product (or --brief, which carries product).[/red]")
+        raise SystemExit(1)
+
+    # Load data
+    brand = load_brand(client)
+    product = load_product_by_name(client, resolved_product_name)
+    avatar = load_avatar(client)  # default avatar; matches `adc generate` behavior
+
+    # Stub brief if not provided so the filler has something to work with
+    if not brief:
+        from models.brief import CreativeBrief, AwarenessLevel, CopyFramework
+        from strategy.brief_generator import _clean_callouts
+        brief = CreativeBrief(
+            brief_id="stub-text-only",
+            client=client,
+            product=resolved_product_name,
+            awareness_level=AwarenessLevel.SOLUTION_AWARE,
+            framework=CopyFramework.AIDA,
+            angle=product.unique_mechanism or product.description or product.name,
+            hook=(product.benefits[0] if product.benefits else product.name),
+            benefit_callouts=_clean_callouts(
+                None, product=product, brief_index=0, n=3,
+            ),
+        )
+
+    # Load template
+    try:
+        template_data = load_cooper_template(template_id, library_root)
+    except FileNotFoundError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise SystemExit(1)
+
+    # Resolve product image — prefer image_url (already public), fall back
+    # to image_path (uploaded by FAL wrapper before render).
+    product_image_ref: str | Path | None = None
+    if product.image_url:
+        product_image_ref = product.image_url
+    elif product.image_path:
+        candidate = Path("clients") / client / product.image_path
+        if candidate.exists():
+            product_image_ref = candidate
+        elif Path(product.image_path).exists():
+            product_image_ref = Path(product.image_path)
+    if product_image_ref is None:
+        console.print(
+            f"[red]Product image not found.[/red]\n"
+            f"[dim]Set image_url or image_path on "
+            f"clients/{client}/products/<slug>.yaml.[/dim]"
+        )
+        raise SystemExit(1)
+
+    console.print(
+        f"\n[bold]Filling template:[/bold] {template_data.get('name')} "
+        f"([cyan]{template_id}[/cyan])"
+    )
+
+    filled = fill_template(
+        template_data=template_data,
+        brand=brand,
+        product=product,
+        avatar=avatar,
+        brief=brief,
+        aspect_ratio=aspect_override,
+    )
+
+    console.print(f"  aspect_ratio:  [yellow]{filled.aspect_ratio}[/yellow] (locked)")
+    console.print(f"  product anchor: applied")
+    console.print(
+        f"  text color:    {filled.chosen_text_color_descriptor} "
+        f"({filled.chosen_text_color_hex})"
+    )
+    if filled.flagged_invented:
+        console.print(
+            f"  [yellow]flagged ⚠️ {len(filled.flagged_invented)} invented "
+            f"slot(s) — see ad-spec.json[/yellow]"
+        )
+        for f in filled.flagged_invented[:5]:
+            console.print(f"     ⚠️  [{f['slot']}] {f['value']}")
+        if len(filled.flagged_invented) > 5:
+            console.print(f"     ⚠️  …and {len(filled.flagged_invented) - 5} more")
+
+    # Build output dirs
+    run_dir = build_run_dir(
+        ai_ads_root=AI_ADS_DIR,
+        client_slug=client,
+        brief_id=(brief.brief_id if brief.brief_id != "stub-text-only" else ""),
+    )
+    template_number = parse_template_number(filled.template_id)
+    template_dir = build_template_subdir(
+        run_dir=run_dir,
+        template_number=template_number,
+        template_slug=filled.template_slug,
+    )
+
+    output_name = f"{client}_{filled.template_slug}"
+
+    console.print(
+        f"\n[bold]Generating[/bold] {num_images} image(s) — "
+        f"product-only image_urls to fal.ai..."
+    )
+
+    with console.status(
+        f"  → {filled.aspect_ratio} via nano-banana-2/edit..."
+    ):
+        result = generate_text_only_ad(
+            filled=filled,
+            product_image_ref=product_image_ref,
+            output_dir=template_dir,
+            output_name=output_name,
+            num_images=num_images,
+            brand_slug=client,
+            product_name=resolved_product_name,
+            brief_id=(brief.brief_id if brief.brief_id != "stub-text-only" else ""),
+        )
+
+    console.print("\n[green][OK][/green] done")
+    console.print(f"  spec:  {result.spec_path}")
+    for p in result.image_paths:
+        console.print(f"  image: {p}")
+
+    from strategy.cost_tracker import log_cost
+    log_cost(
+        client,
+        "adc generate-text",
+        multiplier=num_images,
+        note=f"text-only / {template_id} / {num_images} image(s)",
+    )
+
+
+# ─── Ad Remix ───────────────────────────────────────────────────────────────
+
+
+@cli.command()
+@click.option("--client", required=True, help="Client slug")
+@click.option("--product", required=True, help="Product slug or display name")
+@click.option(
+    "--reference",
+    "ref_path",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Local path to a reference ad image (PNG/JPG/WEBP)",
+)
+@click.option(
+    "--foreplay-url",
+    default=None,
+    help="Foreplay ad URL, e.g. https://app.foreplay.co/ad/12345",
+)
+@click.option(
+    "--foreplay-id",
+    default=None,
+    help="Raw Foreplay numeric ad ID",
+)
+@click.option(
+    "--variations",
+    default=5,
+    type=int,
+    show_default=True,
+    help="How many remix variations to generate",
+)
+@click.option(
+    "--high-fidelity",
+    default=2,
+    type=int,
+    show_default=True,
+    help="How many variations should mimic the reference visual style closely "
+    "(same setting/person/typography). Rest go to medium then low.",
+)
+@click.option(
+    "--medium-fidelity",
+    default=2,
+    type=int,
+    show_default=True,
+    help="How many variations get small persona-tuned variation. "
+    "Remaining variations are 'low' fidelity (creative re-imagining).",
+)
+@click.option(
+    "--creative-direction",
+    default="",
+    help="Optional pre-generation creative directive applied to every variation. "
+    "Example: 'two callouts in primary brand color + accent, text bubble at top'. "
+    "Becomes the highest-priority constraint in the NB2 prompt-writer.",
+)
+@click.option(
+    "--scene-cleanup",
+    default="",
+    help=(
+        "Optional 'remove from the scene' instructions for non-text elements. "
+        "Example: 'remove the dog' when remixing a pet-supplement ad for a "
+        "human-supplement brand. Fires in staged-mode pass 1 alongside the "
+        "product swap, and also injects into the single-shot differential "
+        "prompt. Persisted as scene_cleanup.txt so re-fires pick it up."
+    ),
+)
+@click.option(
+    "--model-descriptor",
+    default="",
+    help=(
+        "Optional prose description of the model/person for staged-mode "
+        "pass 3 (NB2 text-only model swap). Example: 'middle-aged white "
+        "woman' or 'early-40s Asian man in casual workwear'. When set, "
+        "Stage 3 uses NB2 text-mode instead of Higgsfield Soul. Persisted "
+        "as model_descriptor.txt."
+    ),
+)
+@click.option(
+    "--offer",
+    default="NONE",
+    show_default=True,
+    help="Offer code for the Meta ad naming taxonomy (slot 9). E.g. FREESHIP, "
+    "BFCM25, 20OFF. Alphanumeric only, capped at 12 chars. Default NONE.",
+)
+@click.option(
+    "--no-trending",
+    "no_trending",
+    is_flag=True,
+    default=False,
+    help="Skip the trending-format recommender. By default each variation "
+    "brief gets top-3 trending alternatives attached.",
+)
+@click.option(
+    "--mode",
+    type=click.Choice(["strategic", "differential"]),
+    default="strategic",
+    show_default=True,
+    help=(
+        "Prompt-writing mode. "
+        "'strategic' (default) generates verbose ~1500-word prompts that "
+        "DESCRIBE a new ad inspired by the reference — best for fresh-brief "
+        "generation where psychology drives a different visual. "
+        "'differential' vision-extracts the reference's text inventory, "
+        "asks Claude to map each source phrase to a target phrase based on "
+        "the brief, and produces a SHORT surgical-edit prompt (\"swap "
+        "product, swap text, preserve everything else\"). Best for layout-"
+        "faithful remixes like us-vs-them comparison ads. The "
+        "--creative-direction flag becomes the ONLY allowed deviation "
+        "(e.g. \"change background to spring grassy field\")."
+    ),
+)
+@click.option(
+    "--analyze-only",
+    is_flag=True,
+    default=False,
+    help=(
+        "Stop after the cheap analysis + text extraction passes (~$0.04). "
+        "Writes analysis.yaml + source_text_inventory.yaml + a sentinel "
+        "and exits. Review the inventory in the dashboard (or edit the "
+        "YAML directly), then `adc remix-continue --remix-dir <dir> "
+        "--variations N` to generate briefs + mappings + prompts. Lets "
+        "you catch vision misreads BEFORE paying for the ~$0.30 brief "
+        "stage."
+    ),
+)
+def remix(
+    client: str,
+    product: str,
+    ref_path: str | None,
+    foreplay_url: str | None,
+    foreplay_id: str | None,
+    variations: int,
+    high_fidelity: int,
+    medium_fidelity: int,
+    creative_direction: str,
+    scene_cleanup: str,
+    model_descriptor: str,
+    offer: str,
+    no_trending: bool,
+    mode: str,
+    analyze_only: bool,
+):
+    """Reverse-engineer a reference ad and remix it for your product.
+
+    Provide exactly one of --reference (local file), --foreplay-url, or
+    --foreplay-id. The remixer extracts the ad's strategic DNA (ad-type,
+    psychological levers, framework, creative mechanic, visual format),
+    locks that structure, and generates N variations across your client's
+    personas × psychology heuristics. Each variation produces a CreativeBrief
+    plus a Nano Banana 2 prompt under clients/<slug>/remixes/<timestamp>/.
+    """
+    from strategy.ad_remixer import remix as run_remix
+    from strategy.cost_tracker import log_cost
+
+    sources = [s for s in (ref_path, foreplay_url, foreplay_id) if s]
+    if len(sources) != 1:
+        console.print(
+            "[red]Provide exactly one of --reference, --foreplay-url, or --foreplay-id.[/red]"
+        )
+        raise SystemExit(1)
+    if variations < 1:
+        console.print("[red]--variations must be at least 1.[/red]")
+        raise SystemExit(1)
+
+    foreplay_ref = foreplay_url or foreplay_id
+
+    console.print(
+        f"[cyan]Remixing[/cyan] {variations} variation(s) for "
+        f"[bold]{client}[/bold] / [bold]{product}[/bold] "
+        f"([dim]mode={mode}[/dim])..."
+    )
+    result = run_remix(
+        client_slug=client,
+        product_ref=product,
+        reference=ref_path,
+        foreplay_url_or_id=foreplay_ref,
+        variations=variations,
+        high_fidelity=high_fidelity,
+        medium_fidelity=medium_fidelity,
+        creative_direction=creative_direction,
+        scene_cleanup=scene_cleanup,
+        model_descriptor=model_descriptor,
+        offer=offer,
+        include_trending=not no_trending,
+        mode=mode,
+        analyze_only=analyze_only,
+    )
+
+    if analyze_only:
+        out_dir = result["out_dir"]
+        console.print(
+            f"\n[cyan]Analyze-only run complete.[/cyan] "
+            f"Reviewed at: [bold]{out_dir}[/bold]"
+        )
+        console.print(
+            f"  • Analysis:        {out_dir / 'analysis.yaml'}\n"
+            f"  • Text inventory:  {out_dir / 'source_text_inventory.yaml'}\n"
+            f"\nReview and edit `source_text_inventory.yaml` if needed, then:\n"
+            f"  [bold]adc remix-continue --remix-dir \"{out_dir}\" "
+            f"--variations {variations}[/bold]\n"
+            f"\nOr open the run in the dashboard's Remix tab."
+        )
+        if client:
+            log_cost(
+                client, "adc remix --analyze-only",
+                multiplier=1, note=f"analyze-only run {out_dir.name}",
+            )
+        return
+
+    analysis = result["analysis"]
+    out_dir = result["out_dir"]
+    briefs = result["briefs"]
+    pairs = result["pairs"]
+    fidelity_tiers = result.get("fidelity_tiers") or ["medium"] * len(briefs)
+
+    console.print("\n[bold cyan]Reference analysis[/bold cyan]")
+    console.print(
+        f"  ad_type:           [green]{analysis.ad_type}[/green] "
+        f"([dim]conf {analysis.ad_type_confidence:.2f}[/dim])"
+    )
+    console.print(
+        f"  psych_levers:      {', '.join(analysis.psych_levers) or '[dim]—[/dim]'}"
+    )
+    console.print(f"  framework:         {analysis.framework}")
+    console.print(f"  creative_mechanic: {analysis.creative_mechanic or '[dim]—[/dim]'}")
+    console.print(f"  visual_format:     {analysis.visual_format or '[dim]—[/dim]'}")
+    console.print(f"  awareness:         {analysis.awareness_level}")
+    if analysis.enemy:
+        console.print(f"  enemy:             {analysis.enemy}")
+    if analysis.pain_attacked:
+        console.print(f"  pain_attacked:     {analysis.pain_attacked}")
+
+    table = Table(title=f"Remix variations ({len(briefs)})")
+    table.add_column("#", style="dim", justify="right")
+    table.add_column("Fidelity", style="yellow")
+    table.add_column("Persona", style="cyan")
+    table.add_column("Lever", style="magenta")
+    table.add_column("Hook", style="green")
+    for i, (brief, (_avatar, lever), tier) in enumerate(
+        zip(briefs, pairs, fidelity_tiers), 1
+    ):
+        table.add_row(
+            str(i),
+            tier,
+            brief.persona[:32],
+            lever,
+            (brief.hook or "—")[:55],
+        )
+    console.print(table)
+
+    console.print(f"\n[green]Wrote {len(briefs)} brief(s) + prompt(s) to:[/green]")
+    console.print(f"  {out_dir}/")
+    console.print("    analysis.yaml")
+    console.print("    briefs.yaml")
+    console.print("    reference.<ext>")
+    console.print(f"    prompts/  ({len(briefs)} .txt files)")
+
+    console.print(
+        "\n[dim]Next steps:[/dim]\n"
+        "  - Review prompts/*.txt and paste into fal.ai (Nano Banana 2), OR\n"
+        f"  - Drop briefs into your menu and run `adc generate --client {client} --pick ...`"
+    )
+
+    log_cost(
+        client,
+        "adc remix",
+        multiplier=variations,
+        note=f"{variations} remix variation(s) from {analysis.source_type}",
+    )
+
+
+@cli.command(name="remix-images")
+@click.option(
+    "--remix-dir",
+    required=True,
+    type=click.Path(exists=True, file_okay=False),
+    help="Path to a remix directory (e.g. clients/<slug>/remixes/<timestamp>)",
+)
+@click.option(
+    "--num-images",
+    default=1,
+    type=int,
+    show_default=True,
+    help="How many image variations per brief",
+)
+@click.option(
+    "--thinking",
+    default="disabled",
+    help="NB2 thinking level: disabled, low, medium, high",
+)
+@click.option(
+    "--aspect-ratio",
+    default="1:1",
+    show_default=True,
+    help="Aspect ratio for all generated images",
+)
+@click.option(
+    "--engine",
+    type=click.Choice(["nb2", "higgsfield-soul", "hf-web"]),
+    default="nb2",
+    show_default=True,
+    help=(
+        "Image-generation engine. "
+        "'nb2' = fal.ai Nano Banana 2 (default, product-aware). "
+        "'higgsfield-soul' = Higgs Field soul_2 with each persona's trained "
+        "soul_id (identity-locked face). "
+        "'hf-web' = Higgsfield's nano_banana_flash via the web backend "
+        "(fnf.higgsfield.ai) — the real edit model. Recommended for "
+        "reference-replication. Requires HIGGSFIELD_JWT + "
+        "HIGGSFIELD_CLERK_CLIENT cookies in .env (see docs/hf-web-engine.md). "
+        "(The former 'hf-cli' engine was removed 2026-05-22; the npm CLI "
+        "hit the wrong endpoint.)"
+    ),
+)
+@click.option(
+    "--fallback-engine",
+    type=click.Choice(["nb2"]),
+    default=None,
+    help=(
+        "If --engine higgsfield-soul or hf-web fails (auth, credits, etc), "
+        "automatically retry the run with this engine instead of aborting. "
+        "Useful when the dashboard wants graceful degradation."
+    ),
+)
+@click.option(
+    "--staged",
+    is_flag=True,
+    default=False,
+    help=(
+        "Split the differential edit into 3 sequential passes — product "
+        "swap, then text swap, then model/character swap. Each pass has "
+        "ONE job, mirroring the operator's manual workflow.\n\n"
+        "Engine combinations:\n"
+        "  --staged (default --engine nb2): stages 1+2 via NB2 (fal), "
+        "stage 3 via Higgsfield Soul if persona has a trained soul, else "
+        "stops at stage 2. Best fal-backed staged path.\n"
+        "  --staged --engine higgsfield-soul: ALL 3 passes via Higgsfield "
+        "soul_2 (no fal calls). Experimental — soul_2 isn't an edit "
+        "model so layout drifts a bit between passes, but doesn't depend "
+        "on fal at all. Identity-locked on stage 3 if soul present.\n\n"
+        "Requires a differential-mode remix run (the mappings/ dir). "
+        "Intermediate stage images are saved as <bid>_stage{1,2,3}_*.png. "
+        "Note: for single-shot reference-faithful edits, use --engine hf-web "
+        "(no --staged) — it's strictly better than the legacy hf-cli staged path."
+    ),
+)
+def remix_images(
+    remix_dir: str,
+    num_images: int,
+    thinking: str,
+    aspect_ratio: str,
+    engine: str,
+    fallback_engine: str | None,
+    staged: bool,
+):
+    """Generate ad images for an existing remix directory.
+
+    Reads briefs.yaml + prompts/*.txt from the directory, fires the selected
+    engine for each, and saves images to <remix-dir>/images/.
+
+    Use --engine higgsfield-soul to route through Higgs Field with each
+    persona's trained Soul Character — gives identity-locked output. Use the
+    default --engine nb2 for the existing fal.ai Nano Banana 2 pipeline.
+
+    Pass --staged for differential runs to use the 3-pass product → text →
+    model workflow (mirrors the manual Higgsfield process).
+    """
+    from strategy.ad_remixer import generate_remix_images
+    from strategy.cost_tracker import log_cost
+
+    rd = Path(remix_dir)
+    client_slug = ""
+    if "clients" in rd.parts:
+        idx = rd.parts.index("clients")
+        if idx + 1 < len(rd.parts):
+            client_slug = rd.parts[idx + 1]
+
+    engine_label = (
+        "Higgs Field soul_2 (identity-locked)"
+        if engine == "higgsfield-soul"
+        else "fal.ai Nano Banana 2"
+    )
+    staged_label = " · STAGED 3-pass" if staged else ""
+    fallback_label = f" (fallback: {fallback_engine})" if fallback_engine else ""
+    with console.status(
+        f"Generating {num_images} image(s) per brief — firing "
+        f"{engine_label}{staged_label}{fallback_label}..."
+    ):
+        paths = generate_remix_images(
+            remix_dir=remix_dir,
+            num_images=num_images,
+            thinking_level=thinking,
+            aspect_ratio=aspect_ratio,
+            engine=engine,
+            fallback_engine=fallback_engine,
+            staged=staged,
+        )
+
+    if paths:
+        console.print(f"\n[green]Generated {len(paths)} image(s) via {engine_label}:[/green]")
+        for p in paths:
+            console.print(f"  {p}")
+    else:
+        console.print(
+            f"\n[red]Generated 0 image(s).[/red] "
+            f"{engine_label} produced no output and the fallback "
+            f"({fallback_engine or 'none configured'}) did not recover. "
+            f"Check the per-brief errors above for the root cause."
+        )
+
+    if client_slug:
+        log_cost(
+            client_slug,
+            "adc remix-images",
+            multiplier=len(paths),
+            note=f"{len(paths)} image(s) from {rd.name} via {engine}"
+            + (f" (fallback: {fallback_engine})" if fallback_engine else ""),
+        )
+
+
+@cli.command(name="remix-refine")
+@click.option(
+    "--remix-dir",
+    required=True,
+    type=click.Path(exists=True, file_okay=False),
+    help="Path to a remix directory (e.g. clients/<slug>/remixes/<timestamp>)",
+)
+@click.option(
+    "--brief",
+    "brief_id",
+    required=True,
+    help="Brief ID to refine, e.g. secondkind-remix-74c0e5",
+)
+@click.option(
+    "--feedback",
+    required=True,
+    help="What you want changed about the image (natural language)",
+)
+@click.option(
+    "--num-images",
+    default=1,
+    type=int,
+    show_default=True,
+    help="How many refined variations to generate (each costs ~$0.08)",
+)
+@click.option(
+    "--aspect-ratio",
+    default="1:1",
+    show_default=True,
+    help="Aspect ratio for the refined image",
+)
+@click.option(
+    "--thinking",
+    default="disabled",
+    help="NB2 thinking level: disabled, low, medium, high",
+)
+@click.option(
+    "--from-image",
+    "from_image",
+    default=None,
+    help="Specific image filename to refine FROM (e.g. brief-id_1x1.png to start "
+    "from the original instead of the latest version). Default: latest version.",
+)
+@click.option(
+    "--engine",
+    type=click.Choice(["nb2", "higgsfield-soul", "hf-web"]),
+    default="nb2",
+    show_default=True,
+    help=(
+        "Refinement engine. "
+        "'nb2' = fal.ai NB2 edit endpoint (Claude rewrites prompt; uses "
+        "product + previous output as refs; fal credits). "
+        "'higgsfield-soul' = Higgs Field soul_2 iterative refinement with "
+        "trained Soul Character. "
+        "'hf-web' = Higgsfield's nano_banana_flash via the web backend — "
+        "single-image edit using your plain-English feedback as the edit "
+        "prompt. Uses HF plan credits, no fal needed."
+    ),
+)
+@click.option(
+    "--fallback-engine",
+    type=click.Choice(["nb2"]),
+    default=None,
+    help=(
+        "If --engine hf-web or higgsfield-soul fails (auth, credits, etc), "
+        "automatically retry with this engine instead of aborting. Used by "
+        "the dashboard for graceful degradation."
+    ),
+)
+def remix_refine(
+    remix_dir: str,
+    brief_id: str,
+    feedback: str,
+    num_images: int,
+    aspect_ratio: str,
+    thinking: str,
+    from_image: str | None,
+    engine: str,
+    fallback_engine: str | None,
+):
+    """Refine an existing remix image with natural-language feedback.
+
+    Default engine is NB2 (fal.ai edit endpoint with Claude prompt rewrite).
+    Pass `--engine higgsfield-soul` for iterative HF refinement using each
+    persona's trained Soul Character + the previous scene as a composition
+    reference — mirrors the user's manual stage-by-stage HF workflow.
+
+    Saves new images as <brief-id>_v<N>.png (single) or
+    <brief-id>_v<N>_<letter>.png (multiple) alongside the original. HF mode
+    also writes a <brief-id>_v<N>_scene.png alongside (text-free version).
+
+    Each refinement is logged to refinement_log.yaml in the remix folder.
+    """
+    from strategy.ad_remixer import refine_image
+    from strategy.cost_tracker import log_cost
+
+    if num_images < 1:
+        console.print("[red]--num-images must be at least 1[/red]")
+        raise SystemExit(1)
+    if not feedback.strip():
+        console.print("[red]--feedback must be non-empty[/red]")
+        raise SystemExit(1)
+
+    rd = Path(remix_dir)
+    client_slug = ""
+    if "clients" in rd.parts:
+        idx = rd.parts.index("clients")
+        if idx + 1 < len(rd.parts):
+            client_slug = rd.parts[idx + 1]
+
+    with console.status(
+        f"Refining `{brief_id}` ({num_images} variation(s)) via "
+        f"[bold]{engine}[/bold] — feedback: {feedback[:60]}..."
+    ):
+        paths = refine_image(
+            remix_dir=remix_dir,
+            brief_id=brief_id,
+            feedback=feedback,
+            num_images=num_images,
+            aspect_ratio=aspect_ratio,
+            thinking_level=thinking,
+            base_image=from_image,
+            engine=engine,
+            fallback_engine=fallback_engine,
+        )
+
+    console.print(f"\n[green]Generated {len(paths)} refined image(s):[/green]")
+    for p in paths:
+        console.print(f"  {p}")
+
+    if client_slug:
+        log_cost(
+            client_slug,
+            "adc remix-refine",
+            multiplier=len(paths),
+            note=f"{len(paths)} refinement(s) for {brief_id}",
+        )
+
+
+@cli.command(name="remix-continue")
+@click.option(
+    "--remix-dir",
+    required=True,
+    type=click.Path(exists=True, file_okay=False),
+    help="Path to an analyze-only remix directory (must contain "
+    "analysis.yaml and .analyze_only.txt).",
+)
+@click.option(
+    "--variations",
+    default=5,
+    type=int,
+    show_default=True,
+    help="Number of variations to generate. Same semantics as `adc remix`.",
+)
+@click.option(
+    "--high-fidelity",
+    default=2,
+    type=int,
+    show_default=True,
+)
+@click.option(
+    "--medium-fidelity",
+    default=2,
+    type=int,
+    show_default=True,
+)
+@click.option(
+    "--no-trending",
+    "no_trending",
+    is_flag=True,
+    default=False,
+    help="Skip the trending-format recommender.",
+)
+@click.option(
+    "--offer",
+    default="NONE",
+    show_default=True,
+)
+def remix_continue_cmd(
+    remix_dir: str,
+    variations: int,
+    high_fidelity: int,
+    medium_fidelity: int,
+    no_trending: bool,
+    offer: str,
+):
+    """Resume an analyze-only remix run — generate briefs + mappings + prompts.
+
+    Picks up after `adc remix --analyze-only`. Reloads the saved analysis
+    and (if differential) the source text inventory — the operator may
+    have edited source_text_inventory.yaml in the dashboard between
+    analyze and continue, and those edits flow through automatically.
+
+    Removes the `.analyze_only.txt` sentinel on success. Cost: ~$0.10-0.30
+    of Claude calls for brief angles + per-brief mapping."""
+    from strategy.ad_remixer import remix_continue
+    from strategy.cost_tracker import log_cost
+
+    rd = Path(remix_dir)
+    client_slug = ""
+    if "clients" in rd.parts:
+        idx = rd.parts.index("clients")
+        if idx + 1 < len(rd.parts):
+            client_slug = rd.parts[idx + 1]
+
+    if variations < 1:
+        console.print("[red]--variations must be at least 1[/red]")
+        raise SystemExit(1)
+
+    console.print(
+        f"[cyan]Continuing[/cyan] analyze-only run [bold]{rd.name}[/bold] — "
+        f"generating {variations} variation(s)..."
+    )
+    result = remix_continue(
+        remix_dir=remix_dir,
+        variations=variations,
+        high_fidelity=high_fidelity,
+        medium_fidelity=medium_fidelity,
+        include_trending=not no_trending,
+        offer=offer,
+    )
+
+    briefs = result["briefs"]
+    prompts = result["prompts"]
+    out_dir = result["out_dir"]
+
+    console.print(
+        f"\n[green]Generated {len(briefs)} brief(s) + {len(prompts)} prompt(s).[/green]"
+    )
+    console.print(f"Output: [bold]{out_dir}[/bold]")
+    console.print(
+        f"\nNext: `adc remix-images --remix-dir \"{out_dir}\"` to generate images, "
+        f"or open the run in the dashboard."
+    )
+
+    if client_slug:
+        log_cost(
+            client_slug, "adc remix-continue",
+            multiplier=len(briefs),
+            note=f"continued {rd.name}: {len(briefs)} brief(s)",
+        )
+
+
+@cli.command(name="edit")
+@click.option(
+    "--image",
+    "image_paths",
+    required=True,
+    multiple=True,
+    type=click.Path(exists=True, dir_okay=False),
+    help=(
+        "Image path(s) to edit. Pass multiple --image flags for multi-input "
+        "edits (e.g. reference + product). The first image is the primary "
+        "canvas; subsequent images are supplemental references."
+    ),
+)
+@click.option(
+    "--prompt",
+    required=True,
+    help="Plain-English edit instruction. Examples: "
+    "'change the headline to FREE SHIPPING in bold red', "
+    "'replace the woman with a middle-aged white man', "
+    "'remove the dog and extend the background'.",
+)
+@click.option(
+    "--output",
+    "-o",
+    "out_path",
+    type=click.Path(dir_okay=False),
+    default=None,
+    help="Output PNG path. Default: <first-input-stem>_edited.png in the "
+    "same directory as the first --image.",
+)
+@click.option(
+    "--aspect-ratio",
+    default=None,
+    type=click.Choice(["1:1", "3:2", "2:3", "4:3", "3:4", "4:5", "5:4", "9:16", "16:9", "21:9"]),
+    help="Output aspect ratio. Default: match the first input image's "
+    "dimensions (auto-detected via PIL).",
+)
+@click.option(
+    "--resolution",
+    default="1k",
+    type=click.Choice(["1k", "2k", "4k"]),
+    show_default=True,
+    help="Output resolution tier. 1k ≈ 1MP, 2k ≈ 4MP, 4k ≈ 8MP.",
+)
+@click.option(
+    "--engine",
+    type=click.Choice(["hf-web"]),
+    default="hf-web",
+    show_default=True,
+    help="Image-edit engine. Only hf-web (Higgsfield nano_banana_flash) is "
+    "supported today; CLI flag exists for future extension to fal NB2.",
+)
+def edit_cmd(
+    image_paths: tuple[str, ...],
+    prompt: str,
+    out_path: str | None,
+    aspect_ratio: str | None,
+    resolution: str,
+    engine: str,
+):
+    """One-off edit of any image(s) — no Remix run required.
+
+    Submits the input image(s) + your plain-English instruction to
+    Higgsfield's nano_banana_flash edit model and saves the result.
+    Useful for tweaking AI-generated ads, swapping elements in existing
+    creative, or any one-shot edit outside the multi-variation Remix
+    workflow.
+
+    Examples:
+
+      \b
+      # Tweak an existing creative
+      adc edit --image my-ad.png --prompt "change the CTA button to red"
+
+      \b
+      # Multi-input (reference + product)
+      adc edit --image source.png --image product.png \\
+               --prompt "replace the bottle in image 1 with the product from image 2"
+
+      \b
+      # Specify output + aspect
+      adc edit --image hero.png --prompt "remove the model" \\
+               --output hero-no-model.png --aspect-ratio 9:16
+    """
+    from generators.higgsfield_web_client import (
+        upload_image_for_edit,
+        submit_and_wait,
+        download_result,
+        HiggsfieldWebError,
+        HiggsfieldAuthError,
+    )
+    from strategy.cost_tracker import log_cost
+
+    paths = [Path(p) for p in image_paths]
+    if not paths:
+        console.print("[red]At least one --image is required[/red]")
+        raise SystemExit(1)
+    for p in paths:
+        if not p.exists():
+            console.print(f"[red]--image not found: {p}[/red]")
+            raise SystemExit(1)
+
+    # Auto-detect aspect ratio from the first image if not specified.
+    if aspect_ratio is None:
+        try:
+            from PIL import Image as _PILImage
+            with _PILImage.open(paths[0]) as im:
+                w, h = im.size
+            # Map to the nearest supported ratio.
+            ratio = w / h
+            candidates = {
+                "1:1": 1.0, "3:2": 1.5, "2:3": 0.667, "4:3": 1.333,
+                "3:4": 0.75, "4:5": 0.8, "5:4": 1.25,
+                "9:16": 0.5625, "16:9": 1.778, "21:9": 2.333,
+            }
+            aspect_ratio = min(candidates, key=lambda k: abs(candidates[k] - ratio))
+            console.print(
+                f"[dim]Auto-detected aspect ratio from {paths[0].name}: "
+                f"{w}x{h} → {aspect_ratio}[/dim]"
+            )
+        except Exception:
+            aspect_ratio = "1:1"
+            console.print(
+                "[yellow]Couldn't auto-detect aspect ratio; defaulting to 1:1. "
+                "Pass --aspect-ratio explicitly if you want something else.[/yellow]"
+            )
+
+    # Default output path: <first-input>_edited.png next to the input.
+    if out_path is None:
+        first = paths[0]
+        out_path = str(first.parent / f"{first.stem}_edited.png")
+    output = Path(out_path)
+
+    console.print(
+        f"[cyan]adc edit[/cyan]: {len(paths)} input image(s) → {output} "
+        f"(aspect {aspect_ratio}, {resolution}, engine={engine})"
+    )
+
+    # Pre-generation: warn about any known issues on the input refs AND
+    # auto-append any registered prompt fixes. We try to infer the client
+    # slug from the output path if it's nested under clients/<slug>/...;
+    # otherwise skip silently.
+    effective_prompt = prompt
+    try:
+        import sys
+        from validators.validated_assets import (
+            find_issues_for_paths,
+            get_auto_fix_additions,
+        )
+
+        inferred_slug = ""
+        out_parts = output.resolve().parts
+        if "clients" in out_parts:
+            idx = out_parts.index("clients")
+            if idx + 1 < len(out_parts):
+                inferred_slug = out_parts[idx + 1]
+        if inferred_slug:
+            warns = find_issues_for_paths(inferred_slug, list(paths))
+            for asset, iss in warns:
+                console.print(
+                    f"[yellow]⚠ source asset has known issue:[/yellow] {asset}\n"
+                    f"  {iss.issue} (severity={iss.severity})"
+                )
+                if iss.workaround:
+                    console.print(f"  workaround: {iss.workaround}")
+
+            additions = get_auto_fix_additions(list(paths), inferred_slug)
+            if additions:
+                effective_prompt = (
+                    prompt
+                    + "\n\n[AUTO-FIX FROM VALIDATED ASSETS]:\n"
+                    + "\n".join(additions)
+                )
+                print(
+                    f"[validated_assets] Auto-appended {len(additions)} fix(es) "
+                    f"from validated_assets.yaml.",
+                    file=sys.stderr,
+                )
+    except Exception:
+        pass
+
+    # Upload each input to fnf.higgsfield.ai/media and collect (id, url) pairs.
+    input_media: list[tuple[str, str]] = []
+    try:
+        for i, p in enumerate(paths):
+            console.print(f"  Uploading {p.name} ({i + 1}/{len(paths)})...")
+            mid, murl = upload_image_for_edit(p)
+            input_media.append((mid, murl))
+    except HiggsfieldAuthError as e:
+        console.print(f"[red]Auth failed:[/red] {e}")
+        raise SystemExit(1)
+    except HiggsfieldWebError as e:
+        console.print(f"[red]Upload failed:[/red] {e}")
+        raise SystemExit(1)
+
+    console.print("  Submitting nano_banana_flash edit job...")
+    try:
+        result_url = submit_and_wait(
+            prompt=effective_prompt,
+            input_media=input_media,
+            aspect_ratio=aspect_ratio,
+            resolution=resolution,
+            timeout_s=600,
+        )
+    except HiggsfieldWebError as e:
+        console.print(f"[red]Edit failed:[/red] {e}")
+        raise SystemExit(1)
+
+    download_result(result_url, output)
+    console.print(f"[green]✓ Saved {output} ({output.stat().st_size:,} bytes)[/green]")
+
+    # Best-effort cost log. `adc edit` doesn't carry a client slug since it
+    # can run on any image, so we tag it generic.
+    try:
+        log_cost(
+            "_global",
+            "adc edit",
+            multiplier=1,
+            note=f"hf-web edit: {output.name}",
+        )
+    except Exception:
+        pass
+
+    # Write sidecar metadata so this edit is traceable.
+    try:
+        from generators.ad_metadata import write_ad_metadata
+
+        write_ad_metadata(
+            output,
+            engine="hf-web",
+            prompt_or_layout=effective_prompt,
+            references_used=[str(p) for p in paths],
+            ship_status="alt",
+            notes=f"adc edit: aspect={aspect_ratio}, resolution={resolution}",
+        )
+    except Exception:
+        pass
+
+
+@cli.command(name="ugc-ad")
+@click.option(
+    "--base",
+    "base_path",
+    default=None,
+    type=click.Path(dir_okay=False),
+    help="Path to the clean base photo (no text). Required unless --brief "
+    "is provided and the brief carries a base_image reference.",
+)
+@click.option(
+    "--layout",
+    default=None,
+    help="Layout name from the registry (e.g. social-mirror, native-reel-woman, "
+    "native-reel-man, native-pain-010). Either --layout or --brief is required. "
+    "Run `adc ugc-ad --list-layouts` to see registry options.",
+)
+@click.option(
+    "--brief",
+    "brief_path",
+    default=None,
+    type=click.Path(dir_okay=False, exists=True),
+    help="Path to a brief YAML. When the brief has a text_layout block, it is "
+    "used as the layout (overrides --layout).",
+)
+@click.option(
+    "--output",
+    "-o",
+    "out_path",
+    default=None,
+    type=click.Path(dir_okay=False),
+    help="Where to write the composite PNG. Required unless --list-layouts.",
+)
+@click.option(
+    "--brand",
+    "brand_slug",
+    default=None,
+    help="Brand slug — sets fonts, pill color, and CTAs from the brand's "
+    "ugc_voice block. Inferred from --brief.client if absent; falls back "
+    "to the hardcoded SecondKind-Bold preset.",
+)
+@click.option(
+    "--list-layouts",
+    is_flag=True,
+    help="Print the available registry layout names and exit.",
+)
+def ugc_ad_cmd(
+    base_path: str | None,
+    layout: str | None,
+    brief_path: str | None,
+    out_path: str | None,
+    brand_slug: str | None,
+    list_layouts: bool,
+):
+    """First-class hybrid UGC pipeline — caption boxes + pills on a clean photo.
+
+    The pattern: an AI engine (hf-web, NB2, etc.) generates a photo with NO
+    text. Then this command composites Instagram-style caption boxes +
+    brand-colored highlight pills on top via PIL. Deterministic, pixel-
+    perfect, ~$0 cost on the overlay pass.
+
+    Two ways to specify the layout:
+
+      1. --layout <name>  Uses a layout from the registry (see --list-layouts).
+
+      2. --brief <path>   If the brief has a `text_layout` block, that is
+                          used as the layout. Otherwise --layout is required
+                          as a fallback. Brand inference also flows from the
+                          brief's client field.
+
+    Examples:
+
+      \b
+      # Use a registry layout
+      adc ugc-ad --base hero.png --layout social-mirror \\
+                 --brand secondkind-bold --output final.png
+
+      \b
+      # Use a brief-driven layout
+      adc ugc-ad --base hero.png --brief clients/secondkind-bold/briefs/x.yaml \\
+                 --output final.png
+
+      \b
+      # Discover layouts
+      adc ugc-ad --list-layouts
+    """
+    from generators.ugc_overlay import (
+        DEFAULT_UGC_STYLE,
+        UgcStyle,
+        find_disallowed_ctas,
+        list_layouts as _list_layouts,
+        render_native_ugc_ad,
+        text_overlays_from_layout,
+    )
+
+    if list_layouts:
+        console.print("[bold]Available registry layouts:[/bold]")
+        for name in _list_layouts():
+            console.print(f"  - {name}")
+        return
+
+    # ─── Validate inputs ──────────────────────────────────────────────────
+    if not out_path:
+        console.print("[red]--output is required (unless --list-layouts).[/red]")
+        raise SystemExit(1)
+    if not brief_path and not layout:
+        console.print("[red]Either --layout or --brief is required.[/red]")
+        raise SystemExit(1)
+
+    # ─── Load brief if provided ───────────────────────────────────────────
+    brief = None
+    brief_text_layout: list | None = None
+    brief_client_slug = ""
+    if brief_path:
+        import yaml as _yaml
+        from models.brief import CreativeBrief
+
+        with open(brief_path, encoding="utf-8") as f:
+            brief_data = _yaml.safe_load(f) or {}
+        try:
+            brief = CreativeBrief(**brief_data)
+        except Exception as e:
+            console.print(f"[red]Failed to parse brief at {brief_path}: {e}[/red]")
+            raise SystemExit(1)
+
+        brief_client_slug = brief.client or ""
+        if brief.text_layout:
+            brief_text_layout = brief.text_layout
+
+    # ─── Resolve base path ────────────────────────────────────────────────
+    if not base_path:
+        console.print(
+            "[red]--base is required.[/red] (Brief-embedded base inference "
+            "is not yet implemented; pass --base explicitly.)"
+        )
+        raise SystemExit(1)
+
+    base = Path(base_path)
+    if not base.exists():
+        console.print(f"[red]Base image not found: {base}[/red]")
+        raise SystemExit(1)
+
+    output = Path(out_path)
+
+    # ─── Resolve brand / style ────────────────────────────────────────────
+    effective_brand_slug = brand_slug or brief_client_slug or "secondkind-bold"
+    style = DEFAULT_UGC_STYLE
+    brand_voice = None
+    try:
+        from models.loader import load_brand
+        brand_obj = load_brand(effective_brand_slug)
+        brand_voice = brand_obj.ugc_voice
+        style = UgcStyle.from_brand_voice(brand_voice)
+        console.print(f"[dim]Loaded ugc_voice from brand: {effective_brand_slug}[/dim]")
+    except FileNotFoundError:
+        console.print(
+            f"[yellow]Brand '{effective_brand_slug}' not found — "
+            f"using built-in SecondKind preset.[/yellow]"
+        )
+    except Exception as e:
+        console.print(
+            f"[yellow]Could not load brand '{effective_brand_slug}': {e}. "
+            f"Using built-in preset.[/yellow]"
+        )
+
+    # ─── Resolve layout ──────────────────────────────────────────────────
+    if brief_text_layout:
+        layout_payload = brief_text_layout
+        layout_label = f"brief:{brief.brief_id}"
+    elif layout:
+        try:
+            layout_payload = text_overlays_from_layout(layout)
+            layout_label = layout
+        except KeyError as e:
+            console.print(f"[red]{e}[/red]")
+            raise SystemExit(1)
+    else:
+        # Brief had no text_layout AND no --layout fallback
+        console.print(
+            "[red]Brief has no text_layout block. Pass --layout <name> as a "
+            "fallback or add a text_layout to the brief.[/red]"
+        )
+        raise SystemExit(1)
+
+    # ─── CTA validation against brand voice ───────────────────────────────
+    bad_ctas = find_disallowed_ctas(layout_payload, brand_voice)
+    for overlay_text, phrase in bad_ctas:
+        console.print(
+            f"[yellow]⚠ Disallowed CTA phrase found:[/yellow] "
+            f"'{phrase}' in overlay '{overlay_text[:60]}'"
+        )
+
+    # ─── Pre-generation: known asset issues ──────────────────────────────
+    # NOTE: `adc ugc-ad` is the PIL-overlay pipeline — it composites text on
+    # the base photo but never sends a prompt to an image-edit engine. The
+    # auto_fix_prompt_addition is therefore surfaced as an advisory: if the
+    # base image carries a known label-typo or similar source defect, the
+    # operator should regenerate via `adc edit` with the auto-fix
+    # additions BEFORE running ugc-ad. There's no prompt here to inject
+    # into.
+    try:
+        import sys
+        from validators.validated_assets import (
+            find_issues_for_paths,
+            get_auto_fix_additions,
+        )
+
+        warns = find_issues_for_paths(effective_brand_slug, [base])
+        for asset, iss in warns:
+            console.print(
+                f"[yellow]⚠ source asset has known issue:[/yellow] {asset}\n"
+                f"  {iss.issue} (severity={iss.severity})"
+            )
+            if iss.workaround:
+                console.print(f"  workaround: {iss.workaround}")
+
+        additions = get_auto_fix_additions([base], effective_brand_slug)
+        if additions:
+            console.print(
+                "[yellow]  auto_fix_prompt_addition is registered for this "
+                "asset — re-run the base image via `adc edit` with these "
+                "additions before composing:[/yellow]"
+            )
+            for add in additions:
+                console.print(f"  [dim]{add}[/dim]")
+            print(
+                f"[validated_assets] {len(additions)} registered fix(es) "
+                f"available for the base asset (advisory only; "
+                f"adc ugc-ad does not call an image-edit engine).",
+                file=sys.stderr,
+            )
+    except Exception:
+        pass
+
+    # ─── Render ──────────────────────────────────────────────────────────
+    console.print(
+        f"[cyan]adc ugc-ad[/cyan]: {base.name} + layout={layout_label} → {output}"
+    )
+    try:
+        render_native_ugc_ad(base, output, layout=layout_payload, style=style)
+    except Exception as e:
+        console.print(f"[red]Render failed: {type(e).__name__}: {e}[/red]")
+        raise SystemExit(1)
+
+    size_kb = output.stat().st_size / 1024
+    console.print(
+        f"[green]✓ Saved {output} ({size_kb:.1f} KB) — layout: {layout_label}[/green]"
+    )
+
+    # ─── Sidecar metadata ────────────────────────────────────────────────
+    try:
+        from generators.ad_metadata import write_ad_metadata
+        write_ad_metadata(
+            output,
+            engine="pil-overlay",
+            prompt_or_layout=layout_label,
+            references_used=[str(base)],
+            ship_status="alt",
+            brief_id=(brief.brief_id if brief else ""),
+            notes=f"adc ugc-ad on brand={effective_brand_slug}",
+        )
+    except Exception:
+        pass
+
+
+@cli.command(name="fetch-references")
+@click.option("--client", "client_slug", required=True, help="Client slug")
+@click.option(
+    "--folder",
+    "folder_id",
+    default=None,
+    help="Google Drive folder ID. If omitted, falls back to "
+    "brand.references.swipe_folder_id from brand.yaml.",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Re-download even files that are cached unchanged.",
+)
+def fetch_references_cmd(client_slug: str, folder_id: str | None, force: bool):
+    """Mirror a Drive folder of reference ads to clients/<slug>/reference_ads/raw/.
+
+    Walks the folder + any immediate subfolders. Caches by Drive
+    file_id + modifiedTime so subsequent runs skip unchanged files.
+    Prints a summary table at the end.
+
+    Defaults the folder to brand.references.swipe_folder_id when --folder
+    is omitted — set it once in brand.yaml and just run `adc fetch-references
+    --client <slug>` from then on.
+    """
+    from models.loader import load_brand
+    from strategy.drive_cache import DriveCache
+    from strategy.drive_client import DriveAccessError, DriveClient
+
+    try:
+        brand = load_brand(client_slug)
+    except FileNotFoundError as e:
+        console.print(f"[red]{e}[/red]")
+        raise SystemExit(1)
+
+    effective_folder = folder_id or (
+        brand.references.swipe_folder_id if brand.references else ""
+    )
+    if not effective_folder:
+        console.print(
+            "[red]No folder ID provided and brand.references.swipe_folder_id "
+            "is empty. Pass --folder <id> or set the brand default.[/red]"
+        )
+        raise SystemExit(1)
+
+    try:
+        drive = DriveClient()
+    except (EnvironmentError, FileNotFoundError) as e:
+        console.print(f"[red]Drive auth failed:[/red] {e}")
+        raise SystemExit(1)
+
+    cache = DriveCache(client_slug)
+    raw_root = Path("clients") / client_slug / "reference_ads" / "raw"
+    raw_root.mkdir(parents=True, exist_ok=True)
+
+    downloaded = 0
+    cached = 0
+    skipped: list[tuple[str, str]] = []
+    total_bytes = 0
+
+    def _ingest_folder(parent_id: str, subfolder_name: str | None) -> None:
+        nonlocal downloaded, cached, total_bytes
+        try:
+            items = drive.list_folder(parent_id)
+        except DriveAccessError as e:
+            console.print(f"[red]Drive listing failed for {parent_id}: {e}[/red]")
+            return
+        for item in items:
+            if item.is_folder:
+                _ingest_folder(item.id, item.name)
+                continue
+            if not (item.is_image or item.is_video):
+                skipped.append((item.name, f"unsupported mime: {item.mime_type}"))
+                continue
+
+            sub = subfolder_name.lower().strip().replace(" ", "-") if subfolder_name else "_root"
+            dest_dir = raw_root / sub
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest = dest_dir / item.name
+
+            cache_entry = None if force else cache.get(item)
+            already_local = dest.exists()
+            if cache_entry and cache_entry.analyzer == "fetched_raw" and already_local:
+                cached += 1
+                continue
+
+            try:
+                drive.download_to(item.id, dest)
+            except DriveAccessError as e:
+                skipped.append((item.name, f"download failed: {e}"))
+                continue
+
+            total_bytes += dest.stat().st_size
+            downloaded += 1
+            # Re-use the drive cache to record that we've fetched this file.
+            cache.put(item, "fetched_raw", {"local_path": str(dest)})
+
+    console.print(
+        f"[cyan]Fetching Drive folder {effective_folder} → "
+        f"{raw_root}[/cyan] (force={force})"
+    )
+    _ingest_folder(effective_folder, None)
+
+    # Summary
+    table = Table(title=f"fetch-references: {client_slug}")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="green")
+    table.add_row("downloaded", str(downloaded))
+    table.add_row("cached (skipped)", str(cached))
+    table.add_row("skipped (unsupported / failed)", str(len(skipped)))
+    table.add_row("total bytes downloaded", f"{total_bytes:,}")
+    console.print(table)
+    if skipped:
+        console.print("[dim]Skipped files:[/dim]")
+        for name, reason in skipped[:20]:
+            console.print(f"  - {name}: {reason}")
+        if len(skipped) > 20:
+            console.print(f"  ... and {len(skipped) - 20} more")
+
+
+@cli.command(name="set-ship")
+@click.option(
+    "--concept",
+    "concept_dir",
+    required=True,
+    type=click.Path(exists=True, file_okay=False),
+    help="Concept folder (e.g. clients/secondkind-bold/ai-ads/phase-1/social-mirror)",
+)
+@click.option(
+    "--version",
+    "version_filename",
+    required=True,
+    help="Filename of the ship version (e.g. v13-pil-brand-marigold.png)",
+)
+def set_ship_cmd(concept_dir: str, version_filename: str):
+    """Promote one file in a concept folder to ship status.
+
+    Effects:
+      - Updates the chosen file's .meta.yaml: ship_status='ship'.
+      - Demotes any other file previously marked 'ship' to 'superseded'.
+      - Creates / refreshes current.png in the folder (symlink, or copy
+        when symlinks aren't available — Windows requires Dev Mode).
+      - Writes current.png.meta.yaml as a pointer.
+    """
+    from generators.ad_metadata import set_ship_version
+
+    try:
+        current = set_ship_version(concept_dir, version_filename)
+    except (FileNotFoundError, NotADirectoryError) as e:
+        console.print(f"[red]{e}[/red]")
+        raise SystemExit(1)
+
+    console.print(
+        f"[green]Set ship version[/green]: "
+        f"{Path(concept_dir).name}/{version_filename}\n"
+        f"  current pointer: {current}"
+    )
+
+
+@cli.command(name="remix-rebuild-prompts")
+@click.option(
+    "--remix-dir",
+    required=True,
+    type=click.Path(exists=True, file_okay=False),
+    help="Path to a differential-mode remix directory (e.g. clients/<slug>/remixes/<timestamp>)",
+)
+@click.option(
+    "--brief",
+    "brief_id",
+    default=None,
+    help="Optional: rebuild only this brief's prompt. Default: rebuild all.",
+)
+@click.option(
+    "--creative-direction",
+    default=None,
+    help=(
+        "Override the run's saved creative_directive.txt. Leave empty to use "
+        "whatever was saved at remix time (or none if the operator skipped it). "
+        "Useful when iterating on the setting / style delta without re-running "
+        "the whole remix."
+    ),
+)
+def remix_rebuild_prompts(
+    remix_dir: str,
+    brief_id: str | None,
+    creative_direction: str | None,
+):
+    """Re-read mappings/*.yaml and rebuild differential prompts.
+
+    Use case: Claude's source→target mapping was 90% right but one or two
+    lines need a manual nudge. Edit `mappings/<brief_id>.yaml` by hand,
+    then run this to regenerate just the prompts. No new LLM calls; no
+    image generation. After rebuilding, re-fire image generation via
+    `adc remix-images --remix-dir <dir>`.
+
+    Requires the remix run to have been generated in differential mode
+    (the `mappings/` directory only exists for that mode)."""
+    from generators.prompt_engine import infer_aspect_ratio
+    from strategy.ad_remixer import _build_differential_prompt, _format_remix_notes
+    from models.brief import CreativeBrief
+
+    rd = Path(remix_dir)
+    mappings_dir = rd / "mappings"
+    if not mappings_dir.exists():
+        console.print(
+            f"[red]No mappings/ directory in {rd}.[/red] "
+            f"This command only works on differential-mode runs. "
+            f"Re-run the original remix with `--mode differential` first."
+        )
+        raise SystemExit(1)
+
+    briefs_path = rd / "briefs.yaml"
+    if not briefs_path.exists():
+        console.print(f"[red]No briefs.yaml in {rd}[/red]")
+        raise SystemExit(1)
+
+    import yaml as _yaml
+    briefs_data = _yaml.safe_load(briefs_path.read_text(encoding="utf-8")) or []
+
+    # Resolve the client slug from the run path so we can load brand + analysis.
+    client_slug = ""
+    if "clients" in rd.parts:
+        idx = rd.parts.index("clients")
+        if idx + 1 < len(rd.parts):
+            client_slug = rd.parts[idx + 1]
+
+    # Determine the creative direction to use:
+    #   1. --creative-direction flag (explicit override) → use as-is
+    #   2. Saved creative_directive.txt in the run → use that
+    #   3. Empty (no operator delta) → omit SETTING/STYLE block in the prompt
+    if creative_direction is None:
+        cd_file = rd / "creative_directive.txt"
+        cd = cd_file.read_text(encoding="utf-8").strip() if cd_file.exists() else ""
+    else:
+        cd = creative_direction.strip()
+
+    # Scene cleanup uses the same disk-first pattern (no CLI override yet —
+    # operator edits scene_cleanup.txt directly if they want to revise without
+    # re-running the full remix).
+    sc_file = rd / "scene_cleanup.txt"
+    sc = sc_file.read_text(encoding="utf-8").strip() if sc_file.exists() else ""
+
+    # Load product for the swap line.
+    product = None
+    if briefs_data and client_slug:
+        try:
+            from strategy.ad_remixer import _load_product_flexible
+            first_product_name = briefs_data[0].get("product", "")
+            if first_product_name:
+                product = _load_product_flexible(
+                    client_slug, first_product_name.lower().replace(" ", "-")
+                )
+        except Exception:
+            product = None
+    if product is None:
+        console.print(
+            f"[yellow]Could not load product for {client_slug}; using placeholder name in prompt.[/yellow]"
+        )
+
+    prompts_dir = rd / "prompts"
+    prompts_dir.mkdir(exist_ok=True)
+
+    rebuilt = 0
+    skipped = 0
+    for brief_dict in briefs_data:
+        bid = brief_dict.get("brief_id", "")
+        if brief_id and bid != brief_id:
+            continue
+
+        mapping_path = mappings_dir / f"{bid}.yaml"
+        if not mapping_path.exists():
+            console.print(f"[yellow]Skip {bid}: no mapping file at {mapping_path}[/yellow]")
+            skipped += 1
+            continue
+
+        try:
+            mapping_data = _yaml.safe_load(mapping_path.read_text(encoding="utf-8")) or {}
+            mapping = mapping_data.get("mapping") or []
+            if not isinstance(mapping, list):
+                raise ValueError("mapping field is not a list")
+        except Exception as e:
+            console.print(f"[red]Skip {bid}: bad mapping YAML ({e})[/red]")
+            skipped += 1
+            continue
+
+        try:
+            brief_obj = CreativeBrief(**brief_dict)
+        except Exception as e:
+            console.print(f"[red]Skip {bid}: bad brief schema ({e})[/red]")
+            skipped += 1
+            continue
+
+        aspect = infer_aspect_ratio(brief_obj)
+        # Use a placeholder product name if we couldn't load one — keeps the
+        # rebuild non-blocking even if product YAML drifted since the remix.
+        from types import SimpleNamespace
+        prod_for_prompt = product or SimpleNamespace(name=brief_dict.get("product", "this product"))
+
+        prompt_text = _build_differential_prompt(
+            brief=brief_obj,
+            product=prod_for_prompt,
+            mapping=mapping,
+            creative_direction=cd,
+            aspect_ratio=aspect,
+            scene_cleanup=sc,
+        )
+
+        notes = (
+            f"***** REMIX NOTES (rebuilt from mapping YAML) *****\n"
+            f"Brief:           {bid}\n"
+            f"Product:         {brief_dict.get('product', '?')}\n"
+            f"Persona:         {brief_dict.get('persona', '?')}\n"
+            f"Aspect ratio:    {aspect}\n"
+            f"***** END NOTES *****"
+        )
+        notes = f"# MODE: differential (rebuilt from mapping YAML)\n" + notes
+
+        out_path = prompts_dir / f"{bid}.txt"
+        out_path.write_text(notes + "\n\n" + prompt_text + "\n", encoding="utf-8")
+        console.print(f"[green]\\[OK][/green] {out_path}")
+        rebuilt += 1
+
+    console.print(
+        f"\n[green]Rebuilt {rebuilt} prompt(s).[/green] "
+        + (f"[yellow]Skipped {skipped}.[/yellow]" if skipped else "")
+    )
+    console.print(
+        f"[dim]Re-fire image generation: "
+        f"adc remix-images --remix-dir {remix_dir}[/dim]"
+    )
+
+
+# ─── Ad Reference Library ────────────────────────────────────────────────────
+
+
+def _echo_payload_json(payload: dict) -> None:
+    import json as _json
+    click.echo(_json.dumps(payload, indent=2, ensure_ascii=False, default=str))
+
+
+@cli.command()
+@click.argument("source", required=False)
+@click.option("--brand", default="", help="Advertiser name (auto-filled from Foreplay)")
+@click.option("--signal", default="", help="Proxy performance signal, e.g. 'running 4 months, "
+              "12 variations' (auto-computed from Foreplay runtime)")
+@click.option("--source-link", default="", help="Foreplay / landing page link for the card")
+@click.option("--model", default=None, help="Vision model (default claude-sonnet-4-6; "
+              "'gpt-*' → OpenAI, 'vendor/model' → OpenRouter)")
+@click.option("--allow-video", is_flag=True, default=False,
+              help="Analyze a video ad's thumbnail (library v1 scope is static)")
+@click.option("--json", "as_json", is_flag=True, default=False,
+              help="Machine output (full draft payload) — what OpenClaw consumes")
+@click.option("--print-prompt", is_flag=True, default=False,
+              help="Print the generated analyzer system prompt and exit (no API call)")
+def analyze(source: str | None, brand: str, signal: str, source_link: str, model: str | None,
+            allow_video: bool, as_json: bool, print_prompt: bool):
+    """AI first-pass analysis of a competitor ad → draft reference card.
+
+    SOURCE is a local image path, a numeric Foreplay/Facebook ad id, or a URL
+    containing one. Produces a DRAFT under references/swipe/analyzed/.drafts/ —
+    nothing enters the library until `adc library save` with an explicit
+    approve/escalate status. The analyzer prompt is generated from the
+    taxonomy skill docs on every run; it cannot drift from the strategist's
+    vocabulary.
+    """
+    from strategy.ad_analyzer import (
+        DEFAULT_MODEL,
+        analyze_image,
+        build_system_prompt,
+        resolve_source,
+    )
+    from strategy.ad_card import write_draft
+    from strategy.ad_library import log_library_cost
+    from strategy.cost_tracker import COST_RATES
+    from strategy.taxonomy import load_taxonomy
+
+    tax = load_taxonomy()
+    model = model or DEFAULT_MODEL
+
+    if print_prompt:
+        click.echo(build_system_prompt(tax, "static"))
+        return
+    if not source:
+        console.print("[red]Missing SOURCE — pass an image path or a Foreplay ad id.[/red]")
+        raise SystemExit(1)
+
+    try:
+        image_path, media_type, foreplay_meta, context = resolve_source(
+            source, allow_video=allow_video)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise SystemExit(1)
+
+    extra = {k: v for k, v in context.items()
+             if k in ("headline", "description") and v}
+    try:
+        payload = analyze_image(
+            image_path,
+            tax=tax,
+            media_type=media_type,
+            model=model,
+            brand=brand or context.get("brand", ""),
+            proxy_signal=signal or context.get("proxy_signal", ""),
+            source_link=source_link or context.get("source_link", ""),
+            extra_context=extra,
+            foreplay_meta=foreplay_meta,
+        )
+    except (RuntimeError, EnvironmentError) as exc:
+        # Per workflow rules: say so plainly, do not fabricate a card.
+        console.print(f"[red]Analysis failed: {exc}[/red]")
+        raise SystemExit(1)
+
+    draft_path = write_draft(payload)
+    payload["draft_path"] = str(draft_path)
+    log_library_cost("adc analyze", COST_RATES.get("adc analyze", 0.03),
+                     note=f"{payload['card'].get('brand', '?')} via {model}")
+
+    if as_json:
+        _echo_payload_json(payload)
+        return
+    click.echo(payload["display"])
+    for w in payload["warnings"]:
+        console.print(f"[yellow]note:[/yellow] {w}")
+    for issue in payload["issues"]:
+        console.print(f"[red]needs correction before save:[/red] {issue}")
+    console.print(f"\n[dim]Draft: {draft_path}[/dim]")
+    console.print(
+        "[dim]Save:  adc library save --draft "
+        f"\"{draft_path}\" --status approved --by <name>[/dim]")
+
+
+@cli.command(name="taxonomy")
+@click.option("--section", type=click.Choice(["mechanics", "hooks", "formats", "stages",
+                                              "roles"]), default=None,
+              help="Show one section instead of everything")
+@click.option("--media", type=click.Choice(["static", "video"]), default=None,
+              help="Filter formats to what a media type can use")
+@click.option("--markdown", "as_markdown", is_flag=True, default=False,
+              help="Emit a markdown one-pager (for pinning in Slack)")
+def taxonomy_cmd(section: str | None, media: str | None, as_markdown: bool):
+    """The creative vocabulary — mechanics, hook tactics, formats, stages, roles.
+
+    Rendered live from prompts/skills/motion/ (same source the analyzer
+    prompt is generated from), so it can never drift. The source docs stay
+    the deep reference — this is the cheat sheet.
+    """
+    from strategy.taxonomy import (
+        AWARENESS_DEFINITIONS,
+        AWARENESS_STAGES,
+        PRODUCT_ROLES,
+        load_taxonomy,
+        render_taxonomy_markdown,
+    )
+
+    tax = load_taxonomy()
+    if as_markdown:
+        click.echo(render_taxonomy_markdown(tax, media or ""))
+        return
+
+    def table_for(title: str, rows: list[tuple[str, ...]], *cols: str) -> None:
+        t = Table(title=title, show_lines=False)
+        for c in cols:
+            t.add_column(c, overflow="fold")
+        for row in rows:
+            t.add_row(*row)
+        console.print(t)
+
+    if section in (None, "mechanics"):
+        table_for(f"Creative mechanics ({len(tax.mechanics)}) — one primary per card, "
+                  "optional named secondary",
+                  [(e.name, e.definition) for e in tax.mechanics], "mechanic", "what it is")
+    if section in (None, "hooks"):
+        table_for(f"Hook tactics ({len(tax.hook_types)}) — the opening line's frame",
+                  [(e.name, e.definition) for e in tax.hook_types], "hook type", "what it is")
+    if section in (None, "formats"):
+        entries = tax.format_entries(media or "")
+        medium_label = {"static": "static only", "video": "video only", "both": "both"}
+        table_for(f"Visual formats ({len(entries)}"
+                  + (f", {media}-capable" if media else "") + ")",
+                  [(e.name, medium_label.get(e.medium, e.medium), e.definition)
+                   for e in entries], "format", "medium", "what it is")
+    if section in (None, "stages"):
+        table_for("Awareness stages",
+                  [(k, AWARENESS_STAGES[k], AWARENESS_DEFINITIONS[k]) for k in AWARENESS_STAGES],
+                  "value", "label", "who the ad talks to")
+    if section in (None, "roles"):
+        table_for("Product roles",
+                  [(k, v) for k, v in PRODUCT_ROLES.items()], "role", "meaning")
+    console.print(f"[dim]taxonomy version {tax.version} — generated from "
+                  f"prompts/skills/motion/ (edit those to change the vocabulary)[/dim]")
+
+
+@cli.group(name="audience-conversion")
+def audience_conversion():
+    """Audience Conversion Report raw-data tooling."""
+
+
+@audience_conversion.command(name="collect")
+@click.option("--client", required=True, help="Client slug")
+@click.option("--product", default=None, help="Optional product slug to focus product context")
+@click.option("--category", default=None, help="Optional product/category label for the manifest")
+@click.option(
+    "--manual-source",
+    "manual_sources",
+    multiple=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Optional raw TXT/MD source file to include. Repeatable.",
+)
+@click.option(
+    "--include-exa/--skip-exa",
+    default=True,
+    help="Include cached Exa raw results in the raw-data dump.",
+)
+def audience_conversion_collect(
+    client: str,
+    product: str | None,
+    category: str | None,
+    manual_sources: tuple[Path, ...],
+    include_exa: bool,
+):
+    """Build raw Audience Conversion artifacts from existing client research.
+
+    This command is free/local. It consolidates source-preserved repo artifacts
+    into clients/<slug>/research/audience-conversion/ for later synthesis and
+    source-truthing. It does not run paid research or LLM analysis.
+    """
+    from strategy.audience_conversion import collect_audience_conversion_raw
+
+    try:
+        result = collect_audience_conversion_raw(
+            client,
+            product=product,
+            category=category,
+            include_exa=include_exa,
+            manual_sources=list(manual_sources),
+        )
+    except FileNotFoundError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise SystemExit(1)
+
+    console.print(f"\n[green]Collected {result.record_count} raw record(s).[/green]")
+    console.print(f"[green]Wrote {result.raw_md_path}[/green]")
+    console.print(f"[green]Wrote {result.raw_jsonl_path}[/green]")
+    console.print(f"[green]Wrote {result.manifest_path}[/green]")
+    console.print(f"[green]Wrote {result.research_document_path}[/green]")
+    console.print(f"[green]Wrote {result.source_truth_path}[/green]")
+
+    if result.source_counts:
+        table = Table(title="Audience Conversion Sources")
+        table.add_column("Source", style="cyan")
+        table.add_column("Records", justify="right", style="green")
+        for source, count in sorted(result.source_counts.items()):
+            table.add_row(source, str(count))
+        console.print(table)
+
+    if result.empty_lanes:
+        console.print("\n[yellow]Empty or blocked lanes recorded in source-manifest.yaml:[/yellow]")
+        for lane in result.empty_lanes[:10]:
+            reason = lane.get("reason", "no reason recorded")
+            label = lane.get("lane", "unknown")
+            console.print(f"  - {label}: {reason}")
+        if len(result.empty_lanes) > 10:
+            console.print(f"  ... {len(result.empty_lanes) - 10} more")
+
+    console.print(
+        "\n[bold]Next:[/bold] synthesize research-document.md using "
+        "docs/audience-conversion-report.md, then source-truth it."
+    )
+
+
+@audience_conversion.command(name="phase2-static")
+@click.option("--client", required=True, help="Client slug")
+@click.option("--product", default=None, help="Optional product slug")
+@click.option("--avatar", default=None, help="Optional selected avatar/persona name")
+@click.option("--mass-desire", default=None, help="Optional selected mass desire/core focus")
+@click.option(
+    "--filename",
+    default="phase-2-static-briefing-workbook.md",
+    show_default=True,
+    help="Workbook filename under research/audience-conversion/.",
+)
+@click.option("--force", is_flag=True, help="Overwrite an existing workbook.")
+def audience_conversion_phase2_static(
+    client: str,
+    product: str | None,
+    avatar: str | None,
+    mass_desire: str | None,
+    filename: str,
+    force: bool,
+):
+    """Create the Phase 2 static briefing workbook.
+
+    This command is free/local. It does not pull ads, call LLMs, or generate
+    images. It creates the required working doc for the updated Phase 2 flow:
+    research synthesis, avatar gate, mass-desire gate, competitor/adjacent
+    ad analysis, 70/20/10 source mix, angle bank, format selection, and
+    template-specific copy approval.
+    """
+    from strategy.phase2_static import create_static_phase2_workbook
+
+    try:
+        result = create_static_phase2_workbook(
+            client,
+            product=product,
+            focus_avatar=avatar,
+            mass_desire=mass_desire,
+            filename=filename,
+            force=force,
+        )
+    except (FileExistsError, FileNotFoundError) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise SystemExit(1)
+
+    console.print(f"\n[green]Wrote {result.path}[/green]")
+    console.print(
+        "[bold]Next:[/bold] complete the gates in order: synthesize research, "
+        "pick avatar, pick mass desire, pull/analyze competitor and adjacent ads, "
+        "then choose the visual format before writing template-specific copy."
+    )
+
+
+@cli.group()
+def library():
+    """Ad Reference Library — review, save, and audit analyzed ad cards."""
+
+
+@library.command(name="save")
+@click.option("--draft", "draft_path", required=True, type=click.Path(exists=True),
+              help="Draft JSON produced by `adc analyze`")
+@click.option("--corrections", default="", help="Reviewer corrections: 'field = value', "
+              "comma- or newline-separated (fuzzy-matched to canonical values)")
+@click.option("--status", type=click.Choice(["approved", "needs-strategist"]),
+              default=None, help="approve → library; needs-strategist → escalated")
+@click.option("--by", "by_user", default="", help="Reviewer name (Slack handle)")
+@click.option("--note", default="", help="Strategist notes to store on the card")
+@click.option("--dry-run", is_flag=True, default=False,
+              help="Apply corrections and re-render the card WITHOUT saving")
+@click.option("--json", "as_json", is_flag=True, default=False, help="Machine output")
+def library_save(draft_path: str, corrections: str, status: str | None, by_user: str,
+                 note: str, dry_run: bool, as_json: bool):
+    """Save a reviewed draft to the library (or --dry-run the corrections).
+
+    Requires an explicit --status: no card is ever saved without a human's
+    approve or escalate. --dry-run is the re-post loop: it applies
+    corrections, reports exact/fuzzy/rejected matches, and prints the
+    updated card for another look.
+    """
+    from strategy.ad_card import (
+        apply_corrections,
+        read_draft,
+        render_display,
+        save_card,
+        utc_now_iso,
+        validate_card,
+        write_draft,
+    )
+    from strategy.taxonomy import load_taxonomy
+
+    tax = load_taxonomy()
+    payload = read_draft(Path(draft_path))
+    card = dict(payload["card"])
+    original = dict(card)
+
+    report = None
+    if corrections:
+        card, report = apply_corrections(card, corrections, tax)
+
+    result = validate_card(card, tax)
+    display = render_display(result.card, status=status or "")
+
+    if dry_run or not status:
+        if corrections and not dry_run:
+            # Corrections without a status: persist them into the draft so the
+            # next `save --status approved` doesn't need them re-typed.
+            payload["card"] = result.card
+            payload["display"] = render_display(result.card)
+            new_draft = write_draft(payload)
+            console.print(f"[dim]Updated draft: {new_draft}[/dim]")
+        out = {
+            "display": display,
+            "issues": result.issues,
+            "warnings": result.warnings,
+            "corrections": {
+                "applied": report.applied if report else [],
+                "fuzzy_confirm": report.fuzzy if report else [],
+                "rejected": report.rejected if report else [],
+            },
+            "saved": False,
+        }
+        if as_json:
+            _echo_payload_json(out)
+        else:
+            click.echo(display)
+            for line in out["corrections"]["fuzzy_confirm"]:
+                console.print(f"[yellow]fuzzy:[/yellow] {line}")
+            for line in out["corrections"]["rejected"]:
+                console.print(f"[red]rejected:[/red] {line}")
+            for issue in result.issues:
+                console.print(f"[red]blocks save:[/red] {issue}")
+            if not status and not dry_run:
+                console.print("[yellow]No --status given — nothing saved. Pass "
+                              "--status approved or --status needs-strategist.[/yellow]")
+        return
+
+    meta = payload.get("meta") or {}
+    changed = {k: original.get(k) for k in result.card
+               if k in original and original.get(k) != result.card.get(k)
+               and k not in ("field_confidence", "reasoning")}
+    provenance = {
+        "analyzed_at": meta.get("analyzed_at", ""),
+        "model": meta.get("model", ""),
+        "taxonomy_version": meta.get("taxonomy_version", ""),
+        "added_by": by_user,
+        "approved_by": by_user,
+        "approved_at": utc_now_iso(),
+        "model_draft_values": changed,   # what the model said before human corrections
+        "corrections": (report.applied + report.fuzzy) if report else [],
+        "foreplay": meta.get("foreplay") or {},
+    }
+    image = Path(meta["image"]) if meta.get("image") else None
+    try:
+        card_id, sidecar_path = save_card(
+            result.card, status=status, image_path=image, tax=tax,
+            provenance=provenance, added_by=by_user, strategist_notes=note)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise SystemExit(1)
+
+    # Successful save — clean the draft (image was copied into the library).
+    Path(draft_path).unlink(missing_ok=True)
+    if image and ".drafts" in str(image):
+        image.unlink(missing_ok=True)
+
+    if as_json:
+        _echo_payload_json({"saved": True, "card_id": card_id, "status": status,
+                            "sidecar": str(sidecar_path)})
+    else:
+        suffix = " — escalated to strategist" if status == "needs-strategist" else ""
+        console.print(f"[green]Saved as {card_id}{suffix}[/green]  [dim]{sidecar_path}[/dim]")
+
+
+@library.command(name="update")
+@click.argument("card_id")
+@click.option("--corrections", default="", help="'field = value' corrections")
+@click.option("--status", type=click.Choice(["approved", "needs-strategist"]), default=None)
+@click.option("--by", "by_user", default="", help="Who is making the change")
+@click.option("--note", default="", help="Strategist notes")
+@click.option("--json", "as_json", is_flag=True, default=False, help="Machine output")
+def library_update(card_id: str, corrections: str, status: str | None, by_user: str,
+                   note: str, as_json: bool):
+    """Correct or re-status an EXISTING card — the escalation close-out.
+
+    Typical: strategist resolves a needs-strategist card with
+    `adc library update AD-007 --corrections "mechanic = The Reframe"
+    --status approved --by @strategist`.
+    """
+    from strategy.ad_card import render_display, update_card
+    from strategy.taxonomy import load_taxonomy
+
+    status = status or ""
+    if not (corrections or status or note):
+        console.print("[yellow]Nothing to do — pass --corrections, --status, or --note.[/yellow]")
+        return
+    tax = load_taxonomy()
+    try:
+        sidecar, report = update_card(
+            card_id.upper(), corrections=corrections, status=status,
+            strategist_notes=note, updated_by=by_user, tax=tax)
+    except (FileNotFoundError, ValueError) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise SystemExit(1)
+
+    analysis = sidecar.get("analysis") or {}
+    display = render_display(
+        {**analysis, "brand": sidecar.get("brand", "")},
+        card_id=sidecar.get("card_id", card_id), status=analysis.get("status", ""))
+    if as_json:
+        _echo_payload_json({
+            "card_id": sidecar.get("card_id"), "status": analysis.get("status"),
+            "display": display,
+            "corrections": {"applied": report.applied, "fuzzy_confirm": report.fuzzy,
+                            "rejected": report.rejected},
+        })
+    else:
+        click.echo(display)
+        for line in report.rejected:
+            console.print(f"[red]rejected:[/red] {line}")
+
+
+@library.command(name="status")
+@click.option("--json", "as_json", is_flag=True, default=False, help="Machine output")
+def library_status_cmd(as_json: bool):
+    """Library counts, the needs-strategist queue, and the coverage gap map
+    (awareness stage × mechanic)."""
+    from strategy.ad_library import library_status
+    from strategy.taxonomy import AWARENESS_STAGES, load_taxonomy
+
+    tax = load_taxonomy()
+    data = library_status(tax)
+    if as_json:
+        _echo_payload_json(data)
+        return
+
+    console.print(f"\n[bold]Ad Reference Library[/bold] — {data['total']} card(s)")
+    for status, n in sorted(data["by_status"].items()):
+        console.print(f"  {status}: {n}")
+
+    if data["needs_strategist"]:
+        console.print("\n[yellow]Needs strategist (close these out with "
+                      "`adc library update`):[/yellow]")
+        for item in data["needs_strategist"]:
+            low = f" — low confidence: {item['low_confidence']}" if item["low_confidence"] else ""
+            console.print(f"  {item['card_id']}  {item['brand']}  ({item['date_added']}){low}")
+
+    table = Table(title="Coverage — awareness stage × mechanic")
+    table.add_column("stage")
+    for m in tax.mechanic_names():
+        table.add_column(m.replace("The ", ""), justify="center")
+    for stage, row in data["grid"].items():
+        table.add_row(AWARENESS_STAGES.get(stage, stage),
+                      *[str(row[m]) if row[m] else "·" for m in tax.mechanic_names()])
+    console.print(table)
+    if data["empty_mechanics"]:
+        console.print(f"[dim]No cards yet for: {', '.join(data['empty_mechanics'])}[/dim]")
+
+
+@library.command(name="validate")
+@click.option("--model", "models", multiple=True, required=True,
+              help="Candidate model (repeat for a bake-off): claude-*, gpt-*, vendor/model")
+@click.option("--runs", default=2, type=click.IntRange(1, 5),
+              help="Runs per model per ad (2+ measures self-consistency)")
+@click.option("--json", "as_json", is_flag=True, default=False, help="Machine output")
+def library_validate(models: tuple[str, ...], runs: int, as_json: bool):
+    """Score candidate models against the strategist's gold answer key.
+
+    Re-run after ANY prompt/model/taxonomy change and compare to the last
+    results file — if scores drop, roll back (the gold set is forever).
+    """
+    from strategy.ad_library import log_library_cost
+    from strategy.cost_tracker import COST_RATES
+    from strategy.gold_eval import SCORED_FIELDS, run_gold_eval
+
+    try:
+        results = run_gold_eval(list(models), runs_per_model=runs)
+    except (FileNotFoundError, ValueError) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise SystemExit(1)
+
+    calls = results["gold_ads"] * runs * len(models)
+    log_library_cost("adc library validate",
+                     COST_RATES.get("adc library validate", 0.03) * calls,
+                     note=f"{results['gold_ads']} ads × {runs} runs × {len(models)} models")
+    if as_json:
+        _echo_payload_json(results)
+        return
+
+    table = Table(title=f"Gold eval — {results['gold_ads']} ads × {runs} runs "
+                        f"(taxonomy {results['taxonomy_version']})")
+    table.add_column("model")
+    table.add_column("overall", justify="right")
+    table.add_column("consistency", justify="right")
+    for f in SCORED_FIELDS:
+        table.add_column(f, justify="right")
+    for model, r in sorted(results["models"].items(),
+                           key=lambda kv: -kv[1]["overall_accuracy"]):
+        table.add_row(model, f"{r['overall_accuracy']:.0%}", f"{r['self_consistency']:.0%}",
+                      *[f"{r['field_accuracy'][f]:.0%}" for f in SCORED_FIELDS])
+    console.print(table)
+    console.print(f"[dim]Full results (incl. prose for blind rating): "
+                  f"{results['results_path']}[/dim]")
+    console.print("[dim]Failures per model are listed in the results file — read them "
+                  "before crowning a winner.[/dim]")
+
+
+if __name__ == "__main__":
+    cli()

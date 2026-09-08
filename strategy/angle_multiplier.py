@@ -40,7 +40,7 @@ from strategy.awareness_mapper import (
     distribute_across_stages,
     get_mental_stage_strategy,
 )
-from strategy.competitive_context import format_voice_block
+from strategy.competitive_context import format_catalog_block, format_voice_block
 from strategy.llm import claude_complete
 
 # Diversity matrix — adapted from DV0x/creative-ad-agent's hook-methodology.
@@ -368,7 +368,9 @@ CUSTOMER AVATAR:
 {mental_stage_block}
 BRAND TONE: {brand_tone}
 MESSAGING APPROACH: {approach}
+{prohibited_block}
 {competitive_gaps_section}
+{catalog_block}
 For each angle, return:
 
 angles:
@@ -514,6 +516,7 @@ def generate_angles(
     mental_stages: list[MentalStage] | None = None,
     voice: dict | None = None,
     use_voice: bool = True,
+    catalog: dict | None = None,
 ) -> list[dict]:
     """Generate multiple messaging angles for a product/avatar combo.
 
@@ -602,8 +605,15 @@ def generate_angles(
         mental_stage_block=mental_stage_block,
         brand_tone=brand.tone,
         approach=awareness_strategy.get("approach", ""),
+        prohibited_block=(
+            "PROHIBITED TERMS - these words must NEVER appear in any hook, "
+            "angle, copy line, or visual direction, even inside customer "
+            f"quotes (paraphrase around them): {', '.join(brand.prohibited_terms)}"
+            if brand.prohibited_terms else ""
+        ),
         competitive_gaps_section=_format_competitive_gaps(competitive_gaps),
         voice_block=voice_block,
+        catalog_block=format_catalog_block(catalog),
     )
 
     # Each angle has ~15 fields; 9 angles + cross-stage observations easily blow

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import time
 
@@ -143,6 +144,51 @@ def gpt4o_complete(prompt: str, system: str = "", max_tokens: int = 4096) -> str
     return response.choices[0].message.content or ""
 
 
+def openai_structured_json(
+    prompt: str,
+    *,
+    system: str = "",
+    schema: dict,
+    schema_name: str = "structured_output",
+    max_tokens: int = 3000,
+    model: str | None = None,
+) -> dict:
+    """Return JSON from an OpenAI model, using JSON schema when available.
+
+    The default model can be overridden with OPENAI_PROMPT_WRITER_MODEL. A
+    JSON-object fallback keeps older SDK/model combos usable if strict schema
+    mode is rejected by the API.
+    """
+    client = get_openai_client()
+    chosen_model = model or os.environ.get("OPENAI_PROMPT_WRITER_MODEL") or "gpt-4o"
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+
+    kwargs = {
+        "model": chosen_model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "name": schema_name,
+                "schema": schema,
+                "strict": True,
+            },
+        },
+    }
+    try:
+        response = client.chat.completions.create(**kwargs)
+    except Exception:
+        kwargs["response_format"] = {"type": "json_object"}
+        response = client.chat.completions.create(**kwargs)
+
+    text = response.choices[0].message.content or "{}"
+    return json.loads(text)
+
+
 def gpt4o_vision(prompt: str, image_url: str, system: str = "") -> str:
     """GPT-4o with vision — analyze an image."""
     client = get_openai_client()
@@ -184,6 +230,92 @@ def claude_vision(prompt: str, image_url: str, system: str = "", max_tokens: int
         kwargs["system"] = system
     response = client.messages.create(**kwargs)
     return response.content[0].text
+
+
+def sniff_image_mime(data: bytes) -> str | None:
+    """Detect an image's MIME type from its magic bytes.
+
+    Extensions lie: Foreplay serves PNG assets behind .jpg-looking URLs, and
+    Anthropic 400s when the declared media type doesn't match the bytes
+    (live failure: Vessi ad 544513423796604, 2026-07-08). Returns None for
+    anything that isn't a recognized image format.
+    """
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data[:4] in (b"GIF8",):
+        return "image/gif"
+    return None
+
+
+def vision_complete(
+    prompt: str,
+    image: str,
+    *,
+    system: str = "",
+    model: str = "claude-sonnet-4-6",
+    max_tokens: int = 2048,
+) -> str:
+    """Vision completion for a local image file OR URL, routed by model name.
+
+    Routing: `claude-*` → Anthropic, `gpt-*` → OpenAI, anything with a `/`
+    (e.g. `google/gemini-2.5-pro`) → OpenRouter. Local files are inlined as
+    base64 so callers don't need a public URL. Built for the ad-analyzer
+    model bake-off, where the same call must run against several vendors.
+    """
+    import base64
+    from pathlib import Path
+
+    is_url = image.startswith(("http://", "https://"))
+    if not is_url:
+        path = Path(image)
+        data = path.read_bytes()
+        suffix = path.suffix.lower().lstrip(".")
+        # Trust the bytes over the extension — mismatches get rejected by
+        # the vision APIs.
+        mime = sniff_image_mime(data) or f"image/{'jpeg' if suffix in ('jpg', 'jpeg') else suffix}"
+        b64 = base64.standard_b64encode(data).decode()
+
+    if model.startswith("claude"):
+        client = get_anthropic_client()
+        if is_url:
+            source: dict = {"type": "url", "url": image}
+        else:
+            source = {"type": "base64", "media_type": mime, "data": b64}
+        kwargs: dict = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "messages": [{"role": "user", "content": [
+                {"type": "image", "source": source},
+                {"type": "text", "text": prompt},
+            ]}],
+        }
+        if system:
+            kwargs["system"] = system
+        return client.messages.create(**kwargs).content[0].text
+
+    # OpenAI-compatible path (OpenAI direct, or any vendor via OpenRouter).
+    if "/" in model:
+        client = get_openrouter_client()
+        if client is None:
+            raise EnvironmentError(
+                f"Model '{model}' needs OPENROUTER_API_KEY (not set). See .env.example")
+    else:
+        client = get_openai_client()
+    url = image if is_url else f"data:{mime};base64,{b64}"
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": [
+        {"type": "text", "text": prompt},
+        {"type": "image_url", "image_url": {"url": url}},
+    ]})
+    response = client.chat.completions.create(
+        model=model, messages=messages, max_tokens=max_tokens)
+    return response.choices[0].message.content or ""
 
 
 def get_openrouter_client() -> openai.OpenAI | None:
