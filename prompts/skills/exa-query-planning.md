@@ -29,10 +29,14 @@ quit, doubt, and wish existed.
    Each `query` MUST contain the literal placeholder `{competitor}`. Cover
    at least one honest-review angle and one churn/objection angle (why people
    quit, what disappointed them, what they wish it did).
-6. `category_terms`: 5 to 8 short phrases the target audience would type
-   when discussing the problem or the category, in their own words. These
-   become reddit.com discussion searches. Prefer pain and moment language
-   over marketing vocabulary.
+6. `category_terms`: 5 to 8 entries. Each has a `term`, a short phrase the
+   target audience would type when discussing the problem or the category
+   in their own words, and an `anchor`, ONE distinctive word that any
+   on-topic thread would have to contain (for example `muscle`, `menopause`,
+   `gym`). Reddit search pads weak matches with trending junk; the anchor is
+   the filter that throws it out, so pick the word that is specific to the
+   topic, not a filler like `actually` or `works`. Prefer pain and moment
+   language over marketing vocabulary.
 
 ## Rules
 
@@ -61,4 +65,7 @@ competitor_angles:
     category: reddit
     reddit: true
 category_terms:
-  - ...
+  - term: losing muscle after 50 what actually works
+    anchor: muscle
+  - term: ...
+    anchor: ...

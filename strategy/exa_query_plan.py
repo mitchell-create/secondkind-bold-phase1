@@ -53,6 +53,11 @@ class QueryPlan:
     brand_angles: list[PlannedAngle] = field(default_factory=list)
     competitor_angles: list[PlannedAngle] = field(default_factory=list)
     category_terms: list[str] = field(default_factory=list)
+    # term -> one distinctive word any on-topic thread must contain. Becomes
+    # the quoted must-contain filter for keyword engines (Reddit search pads
+    # weak matches with trending junk; competitor queries are clean because
+    # their quoted name is that filter, category terms need this instead).
+    category_anchors: dict[str, str] = field(default_factory=dict)
     provenance: str = "llm"
     generated_at: str = ""
 
@@ -111,9 +116,26 @@ def plan_from_dict(data) -> QueryPlan:
     raw_terms = data.get("category_terms")
     if not isinstance(raw_terms, list):
         raise QueryPlanError("category_terms must be a non-empty list")
-    terms = _dedupe([str(t) for t in raw_terms])
+    plain: list[str] = []
+    anchors: dict[str, str] = {
+        str(k).strip(): str(v).strip()
+        for k, v in (data.get("category_anchors") or {}).items()
+        if str(k).strip() and str(v).strip()
+    }
+    for entry in raw_terms:
+        if isinstance(entry, dict):
+            term = str(entry.get("term", "")).strip()
+            anchor = str(entry.get("anchor", "")).strip()
+            if term and anchor:
+                anchors[term] = anchor
+        else:
+            term = str(entry).strip()
+        if term:
+            plain.append(term)
+    terms = _dedupe(plain)
     if not terms:
         raise QueryPlanError("category_terms must be a non-empty list")
+    anchors = {t: anchors[t] for t in terms if t in anchors}
     return QueryPlan(
         business_type=str(data.get("business_type", "")).strip(),
         brand_footprint=footprint,
@@ -126,6 +148,7 @@ def plan_from_dict(data) -> QueryPlan:
             COMPETITOR_PLACEHOLDER, required=True,
         ),
         category_terms=terms,
+        category_anchors=anchors,
         provenance=str(data.get("provenance", "llm")).strip() or "llm",
         generated_at=str(data.get("generated_at", "")).strip(),
     )
@@ -347,12 +370,15 @@ def queries_from_plan(
             queries.append(_competitor_query(angle, comp, comp_slug))
 
     for term in _dedupe(list(plan.category_terms) + list(extra_category_terms or [])):
+        anchor = plan.category_anchors.get(term, "")
         queries.append(ExaQuery(
             label=f"reddit-category-{slugify(term)}",
             query=f"{term} reddit discussion experiences",
             include_domains=["reddit.com"],
             category="category-discussion",
-            keyword_query=term,
+            # Quoted anchor first: reddit_search_terms() takes the first quoted
+            # phrase as the must-contain filter for the Apify / Reddit API paths.
+            keyword_query=f'"{anchor}" {term}' if anchor else term,
         ))
 
     return queries

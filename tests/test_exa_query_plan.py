@@ -192,3 +192,47 @@ def test_generate_query_plan_raises_when_model_output_is_unusable(tmp_path, monk
     with pytest.raises(QueryPlanError):
         generate_query_plan("oncore-longevity", complete_fn=bad_complete)
     assert not query_plan_path("oncore-longevity").exists()
+
+
+# ─── Category anchors ────────────────────────────────────────────────────────
+# Reddit search pads weak matches with trending junk (a GTA post under "too old
+# for the gym", fabric threads under "losing muscle after 50" on the OnCore run,
+# 14 of 57 threads). Competitor queries were clean because their quoted name
+# becomes the must-contain filter; category terms had no filter. Each term now
+# carries an anchor word that any on-topic thread must mention.
+
+def test_plan_accepts_anchored_category_terms():
+    plan = _plan(category_terms=[
+        {"term": "losing muscle after 50", "anchor": "muscle"},
+        "gym intimidating over 60",
+    ])
+    assert plan.category_terms == ["losing muscle after 50", "gym intimidating over 60"]
+    assert plan.category_anchors == {"losing muscle after 50": "muscle"}
+
+
+def test_anchored_category_query_carries_quoted_must_contain_filter():
+    from strategy.exa_queries import reddit_search_terms
+
+    plan = _plan(category_terms=[{"term": "losing muscle after 50", "anchor": "muscle"}])
+    q = next(x for x in queries_from_plan(plan, "OnCore Longevity", [])
+             if x.category == "category-discussion")
+    search, must_contain = reddit_search_terms(q)
+    assert must_contain == "muscle"
+    assert "losing muscle after 50" in search
+
+
+def test_unanchored_category_query_has_no_filter():
+    from strategy.exa_queries import reddit_search_terms
+
+    plan = _plan(category_terms=["gym intimidating over 60"])
+    q = next(x for x in queries_from_plan(plan, "OnCore Longevity", [])
+             if x.category == "category-discussion")
+    assert reddit_search_terms(q) == ("gym intimidating over 60", "")
+
+
+def test_anchors_survive_save_and_load(tmp_path, monkeypatch):
+    monkeypatch.setattr(qp, "CLIENTS_DIR", tmp_path / "clients")
+    plan = _plan(category_terms=[{"term": "sarcopenia how to stop", "anchor": "sarcopenia"}])
+    save_query_plan("x", plan)
+    loaded = load_query_plan("x")
+    assert loaded.category_anchors == {"sarcopenia how to stop": "sarcopenia"}
