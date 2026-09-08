@@ -1,0 +1,147 @@
+name: SecondKind
+code: SK
+colors:
+  primary: '#1c1917'      # Black - signature serif headlines, body text
+  secondary: '#d2d2cd'    # Light Grey - supporting neutral
+  background: '#fefcf6'   # Snow White - warm off-white background
+  text: '#1c1917'         # Black
+  accent: '#fcb348'       # Mood Balance Yellow - sole warm marigold accent
+typography:
+  heading: F37 Caslon Condensed (Regular / Semibold / Bold; italic for emphasis)
+  body: Neue Montreal Medium / Bold
+visual_identity:
+  aesthetic: Science-backed wellness that feels like a Kinfolk magazine spread. It's
+    clinical and sophisticated, but with an organic, human touch.
+  photography_style: Clean, brightly-lit studio product photography on seamless, neutral
+    backgrounds. Every shot is the hero shot.
+  design_language: Editorial Minimalism. It has the structured grid and whitespace
+    of minimalism but the typographic refinement of a luxury magazine.
+  typography_feel: Classic editorial serif. A sophisticated, high-contrast serif (like
+    a Didone or Bodoni) is used for headlines, paired with a simple, supporting geometric
+    sans-serif for body copy.
+  mascot_or_character: none
+  visual_references:
+  - The clean, quasi-scientific aesthetic of Aesop or SEED
+  - Mid-century abstract graphic design (e.g., Alvin Lustig book covers)
+  - The typography and layout of high-end lifestyle magazines like CEREAL or Kinfolk
+  mood:
+  - calm
+  - scientific
+  - considered
+  - sophisticated
+  - premium
+  notable_visual_signatures:
+  - 'The central graphic: an abstract ''cloud'' of overlapping circles representing
+    the biological ''action'' of the product (e.g., the gut biome).'
+  - Using a single, muted accent color within the circle cloud to differentiate product
+    lines.
+  - Pairing a classic, elegant serif for the brand name and product title with a no-frills
+    sans-serif for functional text.
+  - Premium, dark amber glass jars, signaling an apothecary or scientific sensibility.
+  color_mood: Muted stone and charcoal neutrals, accented by a single desaturated
+    pop of color per product.
+tone: Science-credible, editorially restrained, and quietly confident — the brand
+  educates rather than hypes, uses short declarative constructions, contrast framing
+  (old way vs. new way), and trusts the intelligence of a wellness-curious, probiotic-fatigued
+  audience.
+audience:
+  age_range: 28–50
+  gender: 'Skews female but not exclusively — male reviewers present; Instagram hashtags
+    include #WomensWellness but product and brand copy is gender-neutral'
+  interests:
+  - gut health
+  - functional medicine
+  - Huberman Lab / gut-brain content
+  - clean supplements
+  - debloating
+  - premium wellness
+  - apothecary aesthetics
+  - science-backed health
+platforms:
+- meta
+- tiktok
+press_mentions:
+- CBS
+- NBC
+- Silicon Valley Business Journal
+- USA Today
+- Daily Mail
+- Buffalo News
+social_proof:
+- 92% felt calmer in 2 weeks (brand-reported)
+- 89% reported less bloating (brand-reported)
+- 'Dr. Zachary Schwartz, MD (Family Medicine): ''Gut health isn''t a niche topic anymore
+  — it''s whole-body health, rooted in neuroscience and immunology.'''
+- 'Dr. Nancy Lin, PhD (Holistic Nutritionist): ''SecondKind stands apart because it''s
+  postbiotic-first — finally, a solution that aligns with what the science tells us
+  the body truly needs.'''
+- 'Dr. Stuart Weinberger, MD (Gastroenterologist): ''SecondKind is translating the
+  latest gut-brain research into something accessible for consumers.'''
+- 'Dr. Hyun Dong Shin, PhD (Microbiologist): ''Bereum promotes the production of SCFAs
+  to optimize microbiome balance. It''s why I recommend SecondKind.'''
+- 60-day money-back guarantee
+- Verified customer reviews on product pages (quantity not displayed in scraped content)
+founded: unknown
+founder: Remy Reinstein
+mission: To make postbiotics the new foundation of daily health by supporting the
+  gut, the system behind how the whole body feels every day.
+tagline: The Postbiotic Era Is Here.
+prohibited_terms:
+  # FDA structure-function compliance — supplements cannot claim to treat/cure/prevent disease
+  - cure
+  - treats
+  - heals
+  - prevents
+  - reverses
+  - eliminates
+  # Brand voice rules — anti-influencer, anti-hype
+  - miracle
+  - magical
+  - revolutionary
+  - life-changing
+  - game-changer
+  - guaranteed
+  # Tone violations
+  - amazing
+  - incredible
+  - mind-blowing
+guidelines_notes: |
+  VISUAL TREATMENT RULES (from style guide v1.1):
+  - Sentence case only, never ALL CAPS for headlines or body
+  - No drop shadows, no outlined text, no effects on text or logo
+  - No expanded type, no loose tracking with sentence case
+  - Tight kerning (-2) on F37 Caslon Condensed headlines
+  - Only brand typefaces: F37 Caslon Condensed (heading) + Neue Montreal (body)
+  - Logo: never outline, stretch, distort, contain in box, or use multi-color
+  - Always give logo breathing room (safe area)
+
+  SIGNATURE VISUAL DEVICE — abstract white dot/circle clusters representing the
+  microbiome. Used 4 ways:
+  1. The signature pattern (specific number + placement of overlapping dots)
+  2. Individual dots or connections as a mask over photography
+  3. Dots in graphics for brand association reinforcement
+  4. Technical point-based spherical graphics
+  A single saturated accent color (e.g., marigold #fcb348) lives WITHIN the
+  cluster on one or two dots to differentiate SKUs.
+
+  PRODUCT PACKAGING REFERENCE — dark amber glass jars with glossy black lids.
+  Stone-grey/papery labels. Logo and product name in F37 Caslon, details in
+  Neue Montreal. Strictly centered text alignment on labels.
+
+  VOICE — editorial, restrained, scientifically literate friend. Confident
+  directness, no hype. Structure-function claim language only. Never
+  influencer-y, never miracle-pill, never wellness-trend.
+
+  HARD RULES FOR ADS:
+  - NEVER name competitors in copy (Seed, Arrae, Ritual). Use category language.
+  - NEVER lead with operational claims (refund guarantee, customer service).
+  - Lead with what THE PRODUCT does, not what THE COMPANY does.
+  - Treat phase-one research as still valid: ICPs, pains, competitor gaps, and
+    probiotic fatigue remain the acquisition context.
+  - New messaging hierarchy: gut health is the daily foundation; postbiotics are
+    the technology; the 90-day reset is the offer; whole-body daily rhythm is the
+    larger promise.
+  - Master promise: support the system behind how people feel every day: the gut.
+  - Strong acquisition offer: The Real-Life 90-Day Gut Reset. Frame Buy 2, Get 1
+    Free as consistency/value support for a 90-day routine, not as a discount-first
+    coupon.

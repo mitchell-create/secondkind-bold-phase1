@@ -1,0 +1,1209 @@
+"""Image generation orchestrator — ties prompt engine + fal client + validators together.
+
+Active generation modes:
+- generate_from_brief: from a CreativeBrief (single-image or batch)
+- generate_from_brief_and_template: brief + hand-picked reference template
+  (art-directed flow used by `adc generate --reference X`)
+- generate_from_brief_and_template_hf_web: same as above but routed
+  through Higgsfield's nano_banana_flash edit endpoint instead of fal NB2.
+
+All modes pass real product images alongside the prompt to the image model.
+"""
+
+from __future__ import annotations
+
+from datetime import date
+from pathlib import Path
+
+from models.avatar import CustomerAvatar
+from models.brand import Brand
+from models.brief import CreativeBrief
+from models.product import Product
+# load_prompt + LibraryPrompt are imported locally inside the two template-
+# resolver functions further down. Keeping them off the module top-level
+# import avoids re-loading the library on import.
+from generators.fal_client import (
+    GenerationResult,
+    generate_and_save,
+    resolve_product_images,
+    upload_image,
+)
+from generators.prompt_engine import (
+    find_library_examples_for_brief,
+    infer_aspect_ratio,
+    prompt_from_brief,
+    prompt_from_brief_and_template,
+)
+from generators.swipe_matcher import match_for_brief
+
+
+def _get_product_image_urls(product: Product, client_slug: str) -> list[str]:
+    """Collect all product image URLs for passing to Nano Banana 2."""
+    urls = []
+
+    # Primary image URL (preferred)
+    if product.image_url:
+        urls.append(product.image_url)
+
+    # If no URL, try uploading local files
+    if not urls and product.image_path:
+        local = Path("clients") / client_slug / product.image_path
+        if not local.exists():
+            local = Path(product.image_path)
+        urls = resolve_product_images(product_image_paths=[local])
+
+    if not urls:
+        raise ValueError(
+            f"No product images found for '{product.name}'. "
+            "Real product images are REQUIRED. Add image_url or image_path to the product YAML."
+        )
+
+    return urls
+
+
+def _build_output_dir(client_slug: str, label: str) -> Path:
+    today = date.today().isoformat()
+    return Path("output") / client_slug / today / label
+
+
+# ─── Brief-driven generation (the only active mode) ─────────────────────────
+#
+# Earlier modes removed (2026-05-22): generate_like_this, generate_from_library,
+# get_recommendations wrapper, generate_batch. None of them were wired to a
+# CLI command or dashboard button. The matching prompt_from_reference /
+# prompt_from_library / recommend_prompts functions in generators/prompt_engine
+# remain — they're called directly by `adc generate` / `adc remix` paths.
+
+
+def _classify_brief_style(brief: CreativeBrief) -> str:
+    """Classify a brief as 'ugc' or 'editorial' based on visual format text.
+
+    Used as a SECONDARY fallback when the ad-type category doesn't match
+    any client ref folder. UGC signals: talking head, founder-to-camera,
+    voice-note, UGC, kitchen, POV, mirror selfie, vertical reel, casual
+    handheld. Editorial signals: everything else.
+
+    Defaults to 'editorial' when ambiguous.
+    """
+    fmt = (brief.visual_format or "").lower()
+    ugc_keywords = (
+        "ugc", "talking head", "talking-head", "founder-to-camera",
+        "founder to camera", "voice-note", "voice note", "kitchen",
+        "pov", "mirror selfie", "handheld", "vertical reel", "selfie",
+        "phone", "tiktok", "story",
+    )
+    if any(kw in fmt for kw in ugc_keywords):
+        return "ugc"
+    return "editorial"
+
+
+# Canonical ad-type category → alternate folder names that should also match.
+# Lets the same routing work whether the operator uses the swipe-library
+# canonical naming ("features-and-benefits") or shorter user-friendly names
+# ("features-benefits").
+_CATEGORY_ALIASES: dict[str, list[str]] = {
+    "us-vs-them": ["us-vs-them", "us-vs-them"],
+    "testimonial-review": ["testimonial-review"],
+    "before-and-after": ["before-and-after"],
+    "features-and-benefits": ["features-and-benefits", "features-benefits", "reasons-why"],
+    "facts-and-stats": ["facts-and-stats", "facts-stats"],
+    "media-and-press": ["media-and-press", "media-press"],
+    "promotion-and-discount": ["promotion-and-discount", "promotion-discount"],
+    # New categories that don't exist in the swipe library — still resolve
+    # if the brief hints at them.
+    "headline": ["headline"],
+    "ai-unique": ["ai-unique"],
+}
+
+
+def _classify_brief_category(brief: CreativeBrief) -> str:
+    """Classify a brief into an ad-type category that maps to a client-refs
+    subfolder. Reuses the swipe matcher's keyword logic for consistency.
+    """
+    # Lazy import to avoid circular issues
+    from generators.swipe_matcher import pick_standard_folder
+    return pick_standard_folder(brief.visual_format or "")
+
+
+def _resolve_category_folder(
+    base_dir: Path,
+    canonical_category: str,
+) -> str | None:
+    """Given a canonical category like 'features-and-benefits', find which
+    folder name exists under `base_dir`. Tries the canonical name plus any
+    aliases. Returns the matched folder name or None.
+    """
+    aliases = _CATEGORY_ALIASES.get(canonical_category, [canonical_category])
+    for alias in aliases:
+        candidate = base_dir / alias
+        if candidate.exists() and candidate.is_dir():
+            # Only return if it has actual image files
+            for p in candidate.iterdir():
+                if p.is_file() and p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}:
+                    return alias
+    return None
+
+
+def _list_client_raw_files(raw_dir: Path, style: str | None) -> list[Path]:
+    """Return raw reference image paths.
+
+    Layout supported (priority order):
+      1. style subfolder (`raw/<style>/*`) when `style` is provided —
+         also tries category aliases so `features-benefits` matches when the
+         brief routes to `features-and-benefits`
+      2. flat layout (`raw/*`) — backwards-compatible with --local-dir flat mode
+    """
+    exts = {".png", ".jpg", ".jpeg", ".webp"}
+    if not raw_dir.exists():
+        return []
+
+    # Try the style subfolder first (with alias resolution)
+    if style:
+        # Resolve canonical name → actual folder name (handles user's shorter naming)
+        resolved = _resolve_category_folder(raw_dir, style) or style
+        style_dir = raw_dir / resolved
+        if style_dir.exists() and style_dir.is_dir():
+            return sorted(
+                p for p in style_dir.iterdir()
+                if p.is_file() and p.suffix.lower() in exts
+            )
+
+    # Fallback: flat layout (files directly in raw/)
+    return sorted(
+        p for p in raw_dir.iterdir()
+        if p.is_file() and p.suffix.lower() in exts
+    )
+
+
+def _collect_client_reference_ads(
+    client_slug: str,
+    max_refs: int = 3,
+    style: str | None = None,
+) -> tuple[list[str], str]:
+    """Find SecondKind-specific reference ads (from --local-dir or Drive) and
+    return (uploaded URLs, prompt-ready descriptive block).
+
+    Priority is HIGHER than the generic swipe library — these are hand-picked
+    by the operator for this exact brand, so they outrank generic DTC refs.
+
+    When `style` is provided, prefers refs from `raw/<style>/` (e.g.,
+    `raw/ugc/` for UGC briefs, `raw/editorial/` for editorial briefs).
+    Falls back to flat `raw/` when no style subfolder exists.
+
+    Returns (urls, block). Block is empty when no client refs exist; URLs is
+    empty in that case too.
+    """
+    if not client_slug:
+        return [], ""
+
+    raw_dir = Path("clients") / client_slug / "reference_ads" / "raw"
+    analyses_dir = Path("clients") / client_slug / "reference_ads" / "analyses"
+
+    raw_files = _list_client_raw_files(raw_dir, style)
+    if not raw_files:
+        return [], ""
+
+    # Cap at max_refs so we don't blow NB2's input budget on a huge folder
+    chosen = raw_files[:max_refs]
+
+    urls: list[str] = []
+    for path in chosen:
+        try:
+            urls.append(upload_image(path))
+        except Exception:
+            continue
+
+    # Build a labeled block describing the client refs. Pull each one's analysis
+    # if available so Claude knows WHAT to take from them (mood, palette, composition).
+    # Analysis layout mirrors raw/ layout: try `analyses/<style>/` first, fall back
+    # to flat `analyses/`.
+    import yaml as _yaml
+    analysis_lines: list[str] = []
+    for path in chosen:
+        stem = path.stem[:60]
+        candidate_paths = []
+        if style:
+            candidate_paths.append(analyses_dir / style / f"{stem}.yaml")
+        candidate_paths.append(analyses_dir / f"{stem}.yaml")
+        analysis_path = next((p for p in candidate_paths if p.exists()), None)
+        if analysis_path is None:
+            continue
+        try:
+            data = _yaml.safe_load(analysis_path.read_text(encoding="utf-8")) or {}
+            a = data.get("analysis") or {}
+            mood = a.get("mood") or []
+            palette = a.get("color_palette_dominant") or []
+            comp = a.get("composition_notes") or ""
+            visual_format = a.get("visual_format") or ""
+            label = path.name
+            bits = []
+            if visual_format:
+                bits.append(f"format: {visual_format}")
+            if mood:
+                bits.append(f"mood: {', '.join(mood[:3])}")
+            if palette:
+                bits.append(f"palette: {', '.join(palette[:3])}")
+            if comp:
+                bits.append(f"composition: {comp[:120]}")
+            analysis_lines.append(f"  - {label} — {' | '.join(bits)}")
+        except Exception:
+            continue
+
+    style_label = f" ({style.upper()} style)" if style else ""
+    block_lines = [
+        f"CLIENT-SPECIFIC REFERENCE ADS{style_label} — HIGHEST PRIORITY STYLE TARGETS",
+        f"({len(urls)} image(s) passed alongside the product image, IN ORDER, "
+        f"directly after the product image).",
+        "These are hand-picked by the operator as the AESTHETIC TARGET for this "
+        "brand. Replicate their mood, photography style, environmental context, "
+        "lighting, type treatment, polish level — but DO NOT copy the products "
+        "shown in them. Outranks the generic swipe library references below.",
+    ]
+    if analysis_lines:
+        block_lines.append("")
+        block_lines.append("Per-reference structural notes:")
+        block_lines.extend(analysis_lines)
+
+    return urls, "\n".join(block_lines)
+
+
+def _auto_pick_best_template(
+    brief: CreativeBrief,
+    client_slug: str,
+) -> tuple[str, Path] | None:
+    """Score every per-client template against the brief and return the
+    single best match's (template_id, source_image_path). Returns None
+    if no templates exist for the client or no usable match was found.
+
+    Scoring:
+      +20 if template category matches the brief's resolved category
+      +10 if template's audience_fit includes the brief's awareness level
+      +1  per overlapping tag-keyword between template.tags and brief text
+    """
+    if not client_slug:
+        return None
+
+    import yaml as _yaml
+
+    templates_root = Path("clients") / client_slug / "templates"
+    raw_root = Path("clients") / client_slug / "reference_ads" / "raw"
+    if not templates_root.exists() or not raw_root.exists():
+        return None
+
+    brief_category = _classify_brief_category(brief)
+    aliases = _CATEGORY_ALIASES.get(brief_category, [brief_category])
+    awareness = brief.awareness_level.value if brief.awareness_level else ""
+
+    # Build a bag of brief-relevant keywords for tag scoring
+    brief_text = " ".join(filter(None, [
+        brief.visual_format, brief.creative_mechanic, brief.angle,
+        brief.hook_type, brief.hook_tactic,
+    ])).lower()
+
+    best: tuple[float, str, Path] | None = None
+    for yaml_file in templates_root.rglob("*.yaml"):
+        try:
+            with open(yaml_file, encoding="utf-8") as f:
+                td = _yaml.safe_load(f) or {}
+            if not td.get("template_prompt") or len(td["template_prompt"].strip()) < 50:
+                continue
+
+            score = 0.0
+            template_cat = td.get("category", "")
+            if template_cat in aliases or template_cat == brief_category:
+                score += 20
+            if awareness and awareness in (td.get("audience_fit") or []):
+                score += 10
+            for tag in (td.get("tags") or []):
+                if tag.lower() in brief_text:
+                    score += 1
+
+            if score == 0:
+                continue
+
+            # Resolve the source image path
+            category = yaml_file.parent.name
+            stem = yaml_file.stem
+            source_image = None
+            for ext in (".png", ".jpg", ".jpeg", ".webp"):
+                candidate = raw_root / category / f"{stem}{ext}"
+                if candidate.exists():
+                    source_image = candidate
+                    break
+            if source_image is None:
+                continue
+
+            if best is None or score > best[0]:
+                best = (score, td["id"], source_image)
+        except Exception:
+            continue
+
+    if best is None:
+        return None
+    _score, template_id, source_image = best
+    return template_id, source_image
+
+
+def _get_soul_id_for_persona(client_slug: str, persona_name: str) -> str | None:
+    """Look up higgsfield.soul_id by persona display-name across avatar YAMLs.
+
+    Returns None if no avatar matches or the avatar has no trained Soul
+    Character ready yet. Mirrors `strategy.ad_remixer._get_soul_id_for_brief`
+    but works with a `CreativeBrief.persona` string rather than a brief dict.
+    """
+    if not client_slug or not persona_name:
+        return None
+    import yaml as _yaml
+    avatars_dir = Path("clients") / client_slug / "avatars"
+    if not avatars_dir.exists():
+        return None
+    persona_lower = persona_name.strip().lower()
+    for path in sorted(avatars_dir.glob("*.yaml")):
+        if path.name.startswith("_") or path.name.endswith(".bak"):
+            continue
+        try:
+            data = _yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except Exception:
+            continue
+        if (data.get("name") or "").strip().lower() == persona_lower:
+            hf = data.get("higgsfield") or {}
+            soul_id = hf.get("soul_id")
+            soul_status = (hf.get("soul_status") or "").lower()
+            if soul_id and soul_status == "ready":
+                return soul_id
+            return None
+    return None
+
+
+def generate_from_brief_higgsfield(
+    brief: CreativeBrief,
+    brand: Brand,
+    product: Product,
+    avatar: CustomerAvatar | None = None,
+    client_slug: str = "",
+    output_dir: Path | None = None,
+    num_images: int = 1,
+    aspect_ratio: str | None = None,
+    creative_direction: str = "",
+    offer: str = "NONE",
+) -> tuple[str, list[GenerationResult]]:
+    """Higgs Field soul_2 + PIL text overlay path for `adc generate`.
+
+    Two-pass per output:
+      1. soul_2(soul_id=<persona>, prompt=<text-stripped>) → photoreal scene
+         with identity-locked face; no inline text (soul_2 renders gibberish
+         text).
+      2. PIL overlay → quote + CTA pill composited onto the scene.
+
+    The product image, swipe library, and per-client templates are NOT used —
+    soul_2 doesn't accept multi-image edits the way NB2 does, and the trained
+    Soul Character already supplies the persona identity. If the persona has
+    no ready Soul, raises ValueError so the caller can fall back to NB2.
+
+    Credit-related HiggsfieldError exceptions bubble up unmodified so the
+    outer `generate_from_brief()` dispatcher can swap engines for the run.
+    """
+    from generators.higgsfield_client import HiggsfieldError, soul_generate_and_save
+    from generators.text_overlay import render_ad_overlay, SECONDKIND_PRESET
+    from strategy.ad_remixer import _strip_text_from_prompt
+
+    soul_id = _get_soul_id_for_persona(client_slug, brief.persona or "")
+    if not soul_id:
+        raise ValueError(
+            f"No 'ready' Soul Character for persona '{brief.persona}'. "
+            f"Train one via the Higgs Field MCP, then retry with "
+            f"`--engine higgsfield-soul`."
+        )
+
+    if aspect_ratio is None:
+        aspect_ratio = infer_aspect_ratio(brief)
+
+    # Build campaign_name eagerly (same convention as NB2 path)
+    if not getattr(brief, "campaign_name", ""):
+        try:
+            from strategy.naming import build_campaign_name
+            brief.campaign_name = build_campaign_name(
+                brief, brand, offer=offer, iteration=1, source="AI",
+            )
+        except (ValueError, Exception):
+            pass
+
+    # Write the same prompt we'd write for NB2, then strip the text sections
+    # because soul_2 produces gibberish letterforms.
+    prompt = prompt_from_brief(
+        brief=brief,
+        brand=brand,
+        product=product,
+        avatar=avatar,
+        aspect_ratio=aspect_ratio,
+        creative_direction=creative_direction,
+    )
+    scene_prompt = _strip_text_from_prompt(prompt)
+
+    if output_dir is None:
+        output_dir = Path("ai-ads") / client_slug / "images"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    results: list[GenerationResult] = []
+    for i in range(num_images):
+        suffix = f"_{i+1}" if num_images > 1 else ""
+        scene_path = output_dir / f"{brief.brief_id}{suffix}_scene.png"
+        final_path = output_dir / f"{brief.brief_id}{suffix}.png"
+
+        try:
+            soul_generate_and_save(
+                soul_id=soul_id,
+                prompt=scene_prompt,
+                out_path=scene_path,
+                aspect_ratio=aspect_ratio or "1:1",
+                quality="2k",
+            )
+        except HiggsfieldError as e:
+            # Credit errors bubble up so the outer dispatcher can fall back
+            # to NB2 for the WHOLE run rather than continuing brief-by-brief
+            # with no hope of success.
+            if "credit" in str(e).lower():
+                raise
+            print(f"  [fail soul] {brief.brief_id}: {e}")
+            continue
+
+        # Pass 2: PIL text overlay
+        hero_quote = (getattr(brief, "hook", "") or "").strip()
+        cta_text = (getattr(brief, "cta", "") or "Learn more").strip().rstrip("→").strip()
+        try:
+            render_ad_overlay(
+                base_image=scene_path,
+                hero_quote=hero_quote,
+                cta_text=cta_text,
+                out_path=final_path,
+                preset=SECONDKIND_PRESET,
+            )
+        except Exception as e:
+            print(f"  [fail overlay] {brief.brief_id}: {e}")
+            continue
+
+        results.append(GenerationResult(
+            image_url="",
+            seed=None,
+            model="higgsfield-soul_2",
+            prompt_used=scene_prompt,
+            local_path=final_path,
+            product_images_used=[],
+            aspect_ratio=aspect_ratio or "1:1",
+            resolution="2k",
+        ))
+
+    _write_campaign_sidecars(results, getattr(brief, "campaign_name", ""))
+    return prompt, results
+
+
+def generate_from_brief(
+    brief: CreativeBrief,
+    brand: Brand,
+    product: Product,
+    avatar: CustomerAvatar | None = None,
+    client_slug: str = "",
+    output_dir: Path | None = None,
+    num_images: int = 1,
+    aspect_ratio: str | None = None,
+    thinking_level: str = "disabled",
+    use_references: bool = True,
+    force_multi_ref: bool = False,
+    creative_direction: str = "",
+    offer: str = "NONE",
+    engine: str = "nb2",
+    fallback_engine: str | None = None,
+) -> tuple[str, list[GenerationResult]]:
+    """Take a CreativeBrief, write the prompt with prompt_from_brief(), then
+    generate the image(s) with Nano Banana 2 using the product's real images.
+
+    When `use_references=True` (default), also:
+      * Matches the brief to swipe library reference images (standard +
+        psychology folders) and passes them to NB2 as STYLE refs.
+      * Matches Cooper/Nanobana library templates by audience_fit and feeds
+        their compositional skeletons into the prompt-writer's user prompt.
+
+    The product image is ALWAYS position 0 in the image_urls list — NB2 is
+    instructed in the system prompt to replicate image 1 exactly, and to
+    treat any additional images as composition-only references.
+
+    `engine`:
+      - "nb2"              fal.ai Nano Banana 2 (default, product-aware).
+      - "higgsfield-soul"  Higgs Field soul_2 + PIL text overlay, using each
+                            persona's trained Soul Character (identity lock).
+                            Skips templates / swipe library / product image —
+                            soul_2 doesn't accept multi-image edits.
+
+    `fallback_engine`: if HF fails because of missing credits, retry the
+    run with this engine instead of aborting. Set to "nb2" from the
+    dashboard for graceful degradation.
+
+    Returns (prompt_used, generation_results). Each GenerationResult has
+    its local_path populated.
+    """
+    # ─── Higgs Field Soul path (identity-locked) ───
+    if engine == "higgsfield-soul":
+        try:
+            return generate_from_brief_higgsfield(
+                brief=brief,
+                brand=brand,
+                product=product,
+                avatar=avatar,
+                client_slug=client_slug,
+                output_dir=output_dir,
+                num_images=num_images,
+                aspect_ratio=aspect_ratio,
+                creative_direction=creative_direction,
+                offer=offer,
+            )
+        except Exception as e:
+            if fallback_engine and "credit" in str(e).lower():
+                print(
+                    f"  [fallback] Higgs Field unavailable ({e}). "
+                    f"Falling back to engine={fallback_engine}."
+                )
+                return generate_from_brief(
+                    brief=brief,
+                    brand=brand,
+                    product=product,
+                    avatar=avatar,
+                    client_slug=client_slug,
+                    output_dir=output_dir,
+                    num_images=num_images,
+                    aspect_ratio=aspect_ratio,
+                    thinking_level=thinking_level,
+                    use_references=use_references,
+                    force_multi_ref=force_multi_ref,
+                    creative_direction=creative_direction,
+                    offer=offer,
+                    engine=fallback_engine,
+                    fallback_engine=None,
+                )
+            raise
+
+    # ─── Auto single-pick mode ───
+    # When client templates exist, default behavior is to pick the single best
+    # template and run art-directed single-ref mode (no averaging). Set
+    # `force_multi_ref=True` to override and use the legacy multi-reference
+    # averaging behavior.
+    # Build campaign_name eagerly so the prompt notes header includes it
+    # and we can write a sidecar next to each generated image.
+    if not getattr(brief, "campaign_name", ""):
+        try:
+            from strategy.naming import build_campaign_name
+            brief.campaign_name = build_campaign_name(
+                brief,
+                brand,
+                offer=offer,
+                iteration=1,
+                source="AI",
+            )
+        except (ValueError, Exception):
+            # Brand.code missing or naming module error — leave empty.
+            pass
+
+    if use_references and not force_multi_ref and client_slug:
+        auto_pick = _auto_pick_best_template(brief, client_slug)
+        if auto_pick is not None:
+            template_id, source_image = auto_pick
+            return generate_from_brief_and_template(
+                brief=brief,
+                template_id=template_id,
+                reference_image_path=source_image,
+                brand=brand,
+                product=product,
+                avatar=avatar,
+                client_slug=client_slug,
+                output_dir=output_dir,
+                num_images=num_images,
+                aspect_ratio=aspect_ratio,
+                thinking_level=thinking_level,
+                creative_direction=creative_direction,
+                offer=offer,
+            )
+
+    # ─── Multi-reference fallback (legacy behavior) ───
+    product_urls = _get_product_image_urls(product, client_slug)
+
+    if aspect_ratio is None:
+        aspect_ratio = infer_aspect_ratio(brief)
+
+    # ─── Build style references ───
+    # Priority order (highest first):
+    #   1. Product image (always position 0 — replicate exactly)
+    #   2. Client-specific reference ads (hand-picked aesthetic targets)
+    #   3. Generic swipe library (brand-agnostic ad-type + emotion refs)
+    client_ref_urls: list[str] = []
+    client_ref_block = ""
+    swipe_block = ""
+    library_examples = ""
+    swipe_urls: list[str] = []
+
+    if use_references:
+        # Two-axis client-ref routing (priority order):
+        #   1. AD-TYPE CATEGORY (us-vs-them, testimonial-review, features-and-
+        #      benefits, etc.) — from the brief's visual_format. Highest
+        #      fidelity because each category has a distinct composition.
+        #   2. PRODUCTION STYLE (ugc vs editorial) — fallback when no
+        #      ad-type folder matches or has content.
+        brief_category = _classify_brief_category(brief)
+        brief_style = _classify_brief_style(brief)
+
+        # Try ad-type first
+        ad_type_urls, ad_type_block = _collect_client_reference_ads(
+            client_slug, max_refs=2, style=brief_category,
+        )
+        # Also pull 1 ref from style folder (editorial / ugc) — production style
+        # is an orthogonal axis from ad-type, so we layer one of each.
+        style_urls, _ = _collect_client_reference_ads(
+            client_slug, max_refs=1, style=brief_style,
+        )
+
+        client_ref_urls = ad_type_urls + style_urls
+        client_ref_block = ad_type_block  # the ad-type block carries the labeling
+
+        # Fall back to style folder if ad-type didn't match at all
+        if not client_ref_urls:
+            client_ref_urls, client_ref_block = _collect_client_reference_ads(
+                client_slug, max_refs=2, style=brief_style,
+            )
+
+        # Generic swipe library ONLY when we have no client refs. With a
+        # curated client library in place, the generic 144-ad pool is noise.
+        if not client_ref_urls:
+            match = match_for_brief(
+                visual_format=brief.visual_format,
+                creative_mechanic=brief.creative_mechanic,
+                seed=hash(brief.brief_id) % (2**32),  # stable per-brief seed
+            )
+            swipe_block = match.to_prompt_block()
+            for path in match.all_images:
+                try:
+                    swipe_urls.append(upload_image(path))
+                except Exception:
+                    continue
+
+        # Per-client templates (extracted via `adc extract-templates`) take
+        # priority over Nanobana; Cooper is dropped entirely (include_cooper=False).
+        library_examples = find_library_examples_for_brief(
+            brief, max_examples=2, client_slug=client_slug,
+        )
+
+    # Combined reference block — clients first (priority signal to Claude)
+    combined_block_parts = [b for b in (client_ref_block, swipe_block) if b]
+    combined_swipe_block = "\n\n".join(combined_block_parts)
+
+    # ─── Write the prompt ───
+    prompt = prompt_from_brief(
+        brief=brief,
+        brand=brand,
+        product=product,
+        avatar=avatar,
+        aspect_ratio=aspect_ratio,
+        swipe_block=combined_swipe_block,
+        library_examples=library_examples,
+        creative_direction=creative_direction,
+    )
+
+    # ─── Generate ───
+    if output_dir is None:
+        output_dir = Path("ai-ads") / client_slug / "images"
+
+    # Final image_urls = product first (position 0 = replicate exactly), then
+    # client refs (highest-priority style targets), then swipe refs (generic
+    # style refs). Order matters; the system prompt and combined_swipe_block
+    # both depend on it.
+    full_image_urls = product_urls + client_ref_urls + swipe_urls
+
+    results = generate_and_save(
+        prompt=prompt,
+        product_image_urls=full_image_urls,
+        save_dir=output_dir,
+        filename_prefix=brief.brief_id,
+        aspect_ratio=aspect_ratio,
+        num_images=num_images,
+        thinking_level=thinking_level,
+    )
+
+    # Write a sidecar <stem>_campaign.txt next to each generated image so
+    # operators can copy/paste the full taxonomy name into Meta Ads Manager.
+    _write_campaign_sidecars(results, getattr(brief, "campaign_name", ""))
+
+    return prompt, results
+
+
+def _write_campaign_sidecars(results: list[GenerationResult], campaign_name: str) -> None:
+    """Write `<image_stem>_campaign.txt` next to each saved image.
+    No-op if campaign_name is empty (e.g. brand.code missing)."""
+    if not campaign_name:
+        return
+    for r in results:
+        if r.local_path is None:
+            continue
+        sidecar = r.local_path.with_name(r.local_path.stem + "_campaign.txt")
+        try:
+            sidecar.write_text(campaign_name + "\n", encoding="utf-8")
+        except OSError:
+            pass
+
+
+# ─── Single-reference, single-template mode (art-directed) ───────────────────
+
+
+def _build_hf_web_brief_edit_prompt(
+    brief: CreativeBrief,
+    product: Product,
+    brand: Brand,
+    creative_direction: str = "",
+) -> str:
+    """Build a nano_banana_flash edit prompt from a CreativeBrief + product.
+
+    Unlike the remix differential path, the single-brief generate path
+    does NOT have a per-brief mappings/*.yaml of {source -> target} text
+    swaps. Instead we build a swap-style prompt directly from the brief
+    fields (hook, body_copy, benefit_callouts, cta) and instruct
+    nano_banana_flash to render those as the new text payload while
+    preserving the source ad's composition, fonts, and pill styling.
+
+    Pattern mirrors `_build_remix_edit_prompt` from the remix path so
+    operators get consistent edit behavior across both flows."""
+    lines: list[str] = []
+    lines.append(
+        f"EDIT TASK - this is a precise edit of the first reference image "
+        f"(the source ad). Image 2 is the replacement product "
+        f"({product.name}). Apply ALL of the following changes; preserve "
+        f"everything not listed."
+    )
+    lines.append("")
+
+    # 1) PRODUCT SWAP
+    lines.append(
+        f"1) PRODUCT SWAP - replace the product container shown in Image 1 "
+        f"with the {product.name} from Image 2. Keep the same hand "
+        f"position, orientation, scale relative to the frame, and lighting "
+        f"on the product."
+    )
+    lines.append("")
+
+    # 2) TEXT REPLACEMENT - drawn directly from brief fields
+    lines.append(
+        "2) TEXT REPLACEMENT - replace ALL visible text from the source ad "
+        "with the content below. Use the same fonts, weights, alignment, "
+        "and pill/wash-bubble/panel styling as the source ad. If the source "
+        "has 3 callouts, use the 3 most important strings below. If the "
+        "source has a single headline + body, condense accordingly. Where "
+        "the source has a number of badges/marks, keep the same count and "
+        "swap only the text content."
+    )
+    hook = (brief.hook or "").strip()
+    if hook:
+        lines.append(f'  - Headline:        "{hook}"')
+    body = (brief.body_copy or "").strip()
+    if body:
+        body_one_line = " ".join(body.split())
+        lines.append(f'  - Body copy:       "{body_one_line}"')
+    for i, callout in enumerate(brief.benefit_callouts or [], 1):
+        c = (callout or "").strip()
+        if c:
+            lines.append(f'  - Benefit {i}:       "{c}"')
+    cta = (brief.cta or "").strip()
+    if cta:
+        lines.append(f'  - CTA / button:    "{cta}"')
+    lines.append("")
+
+    # 3) BRAND IDENTITY swap
+    brand_name = (getattr(brand, "name", "") or "").strip()
+    if brand_name:
+        lines.append(
+            f"3) BRAND IDENTITY - replace any brand name, wordmark, badge, "
+            f"or logo visible in the source ad with the {brand_name} brand. "
+            f"If the source ad shows a different brand's product noun "
+            f"(e.g. 'Chews', 'Capsules', 'Drops'), use {product.name} or "
+            f"the appropriate noun for {brand_name} instead."
+        )
+        lines.append("")
+
+    # 4) Optional creative direction
+    cd = (creative_direction or "").strip()
+    if cd:
+        lines.append(f"4) CREATIVE DIRECTION (highest priority): {cd}")
+        lines.append("")
+
+    # PRESERVE clause
+    lines.append(
+        "PRESERVE PIXEL-IDENTICALLY: composition, framing, lighting "
+        "register, color palette, callout pill/panel backgrounds, badges, "
+        "decorative marks (checkmarks, X-marks, vignettes), "
+        "tabletop/background, and any human figure or props NOT explicitly "
+        "swapped above."
+    )
+    return "\n".join(lines)
+
+
+def generate_from_brief_and_template_hf_web(
+    brief: CreativeBrief,
+    template_id: str,
+    reference_image_path: Path,
+    brand: Brand,
+    product: Product,
+    avatar: CustomerAvatar | None = None,
+    client_slug: str = "",
+    output_dir: Path | None = None,
+    num_images: int = 1,
+    aspect_ratio: str | None = None,
+    creative_direction: str = "",
+    offer: str = "NONE",
+    resolution: str = "1k",
+) -> tuple[str, list[GenerationResult]]:
+    """ART-DIRECTED generation via Higgsfield web nano_banana_flash.
+
+    Counterpart to `generate_from_brief_and_template` that routes through
+    fnf.higgsfield.ai instead of fal.ai NB2. Use this when:
+      - You want the same reference-faithful edit behavior the remix
+        differential mode produces, but for a single brief at a time.
+      - You're avoiding fal credits and prefer HF plan credits.
+      - The reference layout is complex (us-vs-them panels, multi-callout
+        comparison ads) where fal NB2 drifts.
+
+    Image flow:
+      1. Upload reference + product to fnf.higgsfield.ai/media (returns
+         media_id + public CloudFront URL for each).
+      2. Build an edit prompt from brief.hook / body_copy / benefit_callouts
+         / cta using `_build_hf_web_brief_edit_prompt`.
+      3. POST nano_banana_flash with the two medias. Poll. Download.
+
+    Auth: requires HIGGSFIELD_CLERK_CLIENT (and optionally HIGGSFIELD_JWT
+    + HIGGSFIELD_DATADOME) in .env. See docs/hf-web-engine.md.
+
+    Returns (prompt_used, generation_results) matching the fal-NB2 contract.
+    """
+    from generators.higgsfield_web_client import (
+        submit_and_wait,
+        download_result,
+        upload_image_for_edit,
+        HiggsfieldWebError,
+        HiggsfieldAuthError,
+    )
+    from models.library import load_prompt, LibraryPrompt
+    import yaml as _yaml
+
+    # Resolve template (mirrors generate_from_brief_and_template - keeps
+    # the behavior of looking up the named template even though the hf-web
+    # path doesn't use the template_prompt directly).
+    template = None
+    if client_slug:
+        client_templates_root = Path("clients") / client_slug / "templates"
+        for yaml_file in client_templates_root.rglob("*.yaml"):
+            try:
+                with open(yaml_file, encoding="utf-8") as f:
+                    data = _yaml.safe_load(f)
+                if data and data.get("id") == template_id:
+                    allowed = LibraryPrompt.model_fields.keys()
+                    data = {k: v for k, v in data.items() if k in allowed}
+                    template = LibraryPrompt(**data)
+                    break
+            except Exception:
+                continue
+    if template is None:
+        try:
+            template = load_prompt(template_id)
+        except FileNotFoundError:
+            raise ValueError(
+                f"Template '{template_id}' not found in client templates "
+                f"or global library."
+            )
+
+    if not reference_image_path.exists():
+        raise FileNotFoundError(
+            f"Reference image not found: {reference_image_path}"
+        )
+
+    if aspect_ratio is None:
+        aspect_ratio = infer_aspect_ratio(brief)
+
+    if output_dir is None:
+        output_dir = Path("ai-ads") / client_slug / "images"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Build the edit prompt FROM THE BRIEF (not from the template_prompt -
+    # that's NB2-style from-scratch generation; we want edit-swap semantics
+    # for nano_banana_flash).
+    prompt = _build_hf_web_brief_edit_prompt(
+        brief=brief,
+        product=product,
+        brand=brand,
+        creative_direction=creative_direction,
+    )
+
+    # Resolve product local image path (HF media upload needs a local file).
+    product_local: Path | None = None
+    if product.image_path:
+        candidate = Path("clients") / client_slug / product.image_path
+        if candidate.exists():
+            product_local = candidate
+        else:
+            candidate2 = Path(product.image_path)
+            if candidate2.exists():
+                product_local = candidate2
+    if product_local is None:
+        # Fallback: try to download the URL into a temp file
+        if product.image_url:
+            import tempfile
+            import urllib.request
+            tmp = Path(tempfile.gettempdir()) / f"hf_web_product_{product.name.replace(' ', '_')}.png"
+            try:
+                urllib.request.urlretrieve(product.image_url, tmp)
+                product_local = tmp
+            except Exception as e:
+                raise RuntimeError(
+                    f"Could not resolve a local product image for hf-web "
+                    f"upload. image_path missing/invalid and image_url "
+                    f"download failed: {e}"
+                )
+        else:
+            raise RuntimeError(
+                f"No local product image available for '{product.name}'. "
+                f"hf-web requires a local file to upload; add image_path or "
+                f"image_url to the product YAML."
+            )
+
+    # Upload reference + product to fnf.higgsfield.ai/media. Both fields
+    # need the media_id (canonical reference) AND the public URL (sent in
+    # the medias[].data.url payload).
+    try:
+        ref_media_id, ref_url = upload_image_for_edit(reference_image_path)
+        product_media_id, product_url = upload_image_for_edit(product_local)
+    except HiggsfieldAuthError as e:
+        raise RuntimeError(f"HF-web upload failed (auth): {e}") from e
+    except HiggsfieldWebError as e:
+        raise RuntimeError(
+            f"HF-web upload failed: {e}\nCheck HIGGSFIELD_CLERK_CLIENT and "
+            f"HIGGSFIELD_DATADOME in .env."
+        ) from e
+
+    # Build campaign_name if not already set
+    if not getattr(brief, "campaign_name", ""):
+        try:
+            from strategy.naming import build_campaign_name
+            brief.campaign_name = build_campaign_name(
+                brief, brand, offer=offer, iteration=1, source="AI",
+            )
+        except (ValueError, Exception):
+            pass
+
+    # Submit num_images calls (nano_banana_flash returns one image per
+    # submission; matches fal NB2 semantics).
+    results: list[GenerationResult] = []
+    for i in range(num_images):
+        suffix = f"_{i+1}" if num_images > 1 else ""
+        out_path = output_dir / f"{brief.brief_id}_ref_{template.id[:30]}{suffix}.png"
+        try:
+            result_url = submit_and_wait(
+                prompt=prompt,
+                input_media=[
+                    (ref_media_id, ref_url),
+                    (product_media_id, product_url),
+                ],
+                aspect_ratio=aspect_ratio,
+                resolution=resolution,
+                timeout_s=600,
+            )
+            download_result(result_url, out_path)
+        except HiggsfieldAuthError as e:
+            raise RuntimeError(f"HF-web auth failed: {e}") from e
+        except HiggsfieldWebError as e:
+            raise RuntimeError(f"HF-web job failed: {e}") from e
+
+        results.append(
+            GenerationResult(
+                image_url=result_url,
+                seed=None,
+                model="nano_banana_flash",
+                prompt_used=prompt,
+                local_path=out_path,
+                product_images_used=[product_url],
+                aspect_ratio=aspect_ratio,
+                resolution=resolution,
+            )
+        )
+
+    _write_campaign_sidecars(results, getattr(brief, "campaign_name", ""))
+    return prompt, results
+
+
+def generate_from_brief_and_template(
+    brief: CreativeBrief,
+    template_id: str,
+    reference_image_path: Path,
+    brand: Brand,
+    product: Product,
+    avatar: CustomerAvatar | None = None,
+    client_slug: str = "",
+    output_dir: Path | None = None,
+    num_images: int = 1,
+    aspect_ratio: str | None = None,
+    thinking_level: str = "disabled",
+    creative_direction: str = "",
+    offer: str = "NONE",
+    legacy_product_first: bool = False,
+) -> tuple[str, list[GenerationResult]]:
+    """ART-DIRECTED generation: one brief + one extracted template + one
+    reference image. No swipe library, no template averaging, no Nanobana
+    aggregation — just the single hand-picked reference doing its job.
+
+    The reference image is uploaded and passed to NB2 alongside the product
+    image (positions 0 and 1 respectively). The template's `template_prompt`
+    becomes the compositional backbone; brief content fills the placeholders.
+
+    Returns (prompt_used, generation_results).
+    """
+    # Resolve the template by ID (search per-client templates first, then library)
+    from models.library import load_prompt
+    from pathlib import Path as _Path
+    template = None
+    if client_slug:
+        client_templates_root = _Path("clients") / client_slug / "templates"
+        for yaml_file in client_templates_root.rglob("*.yaml"):
+            try:
+                import yaml as _yaml
+                with open(yaml_file, encoding="utf-8") as f:
+                    data = _yaml.safe_load(f)
+                if data and data.get("id") == template_id:
+                    # Filter to LibraryPrompt fields (drop source_ad etc.)
+                    from models.library import LibraryPrompt
+                    allowed = LibraryPrompt.model_fields.keys()
+                    data = {k: v for k, v in data.items() if k in allowed}
+                    template = LibraryPrompt(**data)
+                    break
+            except Exception:
+                continue
+    if template is None:
+        # Fallback to global library
+        try:
+            template = load_prompt(template_id)
+        except FileNotFoundError:
+            raise ValueError(
+                f"Template '{template_id}' not found in client templates or global library."
+            )
+
+    if not reference_image_path.exists():
+        raise FileNotFoundError(f"Reference image not found: {reference_image_path}")
+
+    product_urls = _get_product_image_urls(product, client_slug)
+
+    if aspect_ratio is None:
+        aspect_ratio = infer_aspect_ratio(brief)
+
+    # Upload the single reference image
+    reference_url = upload_image(reference_image_path)
+
+    # Write the prompt using the brief + template + reference combo.
+    # Passing reference_image_path lets the prompt engine look up the
+    # reference's on-image word count and target that text density.
+    prompt = prompt_from_brief_and_template(
+        brief=brief,
+        template=template,
+        brand=brand,
+        product=product,
+        avatar=avatar,
+        aspect_ratio=aspect_ratio,
+        reference_image_path=reference_image_path,
+        client_slug=client_slug,
+        creative_direction=creative_direction,
+    )
+
+    if output_dir is None:
+        output_dir = Path("ai-ads") / client_slug / "images"
+
+    # Exactly 2 images to NB2 — order matters because NB2 /edit treats
+    # image 1 as the canvas to edit and image 2 as supplemental reference.
+    #
+    # DEFAULT (reference-first): image_urls = [reference, product]
+    #     The reference ad is the canvas; the product is inserted into it.
+    #     This is what you want when the user supplied a reference: clone
+    #     the reference's layout/composition, swap in the actual product.
+    #     Replaced the old [product, reference] default after A/B testing
+    #     showed the old order caused major layout drift (the reference
+    #     was treated as supplemental, not as the canvas).
+    #
+    # LEGACY (product-first): image_urls = [product, reference]
+    #     The product is the canvas; the reference is supplemental style
+    #     guide. Loose, brand-tone-preserving, but doesn't faithfully
+    #     replicate the reference's layout. Kept as an escape hatch via
+    #     legacy_product_first=True or ADC_LEGACY_PRODUCT_FIRST=1.
+    import os as _os
+    env_legacy = _os.environ.get("ADC_LEGACY_PRODUCT_FIRST", "").strip() in ("1", "true", "yes")
+    use_legacy = legacy_product_first or env_legacy
+    reference_first = not use_legacy
+    if reference_first:
+        image_urls = [reference_url] + product_urls
+        # Override the standard "image 1 is the product" directive with one
+        # that matches the new ordering. Tightened in v2 to prevent copy
+        # contamination from the reference (where the reference's brand
+        # name, product noun, headlines, etc. leaked into the rendered ad).
+        prompt = (
+            "═══════════════════════════════════════════════════════════════\n"
+            "OVERRIDE RULES — APPLY BEFORE ANYTHING ELSE BELOW:\n"
+            "═══════════════════════════════════════════════════════════════\n"
+            "\n"
+            "IMAGE 1 = LAYOUT WIREFRAME ONLY.\n"
+            "  Take from image 1: composition, panel positions, background\n"
+            "  color, color scheme, element placement, typography style,\n"
+            "  spatial rhythm, photographic treatment (lighting, angle,\n"
+            "  shadows), and the overall structural feel.\n"
+            "\n"
+            "  DO NOT TAKE ANY TEXT, WORDS, OR LANGUAGE FROM IMAGE 1.\n"
+            "  Every headline, body line, bullet point, CTA, badge label,\n"
+            "  brand name, product name, product noun (e.g. 'Chews',\n"
+            "  'Capsules', 'Drops'), star-rating count, review count, and\n"
+            "  any other text visible in image 1 IS NOT YOURS TO USE.\n"
+            "  Mentally blur out every piece of text in image 1 and only\n"
+            "  replicate its shapes and regions. If image 1 says 'Probiotic\n"
+            "  Chews' or 'PetLabCo' or any brand or product noun, IGNORE IT.\n"
+            "  If image 1 has a brand logo, replace it with the brand named\n"
+            "  in the prompt body below.\n"
+            "\n"
+            "IMAGE 2 = ACTUAL PRODUCT.\n"
+            "  Replicate image 2's design, colors, label text, shape, and\n"
+            "  packaging EXACTLY. This is the product that appears in the\n"
+            "  final ad, placed where image 1's product is placed.\n"
+            "\n"
+            "ALL TEXT IN THE FINAL AD comes from the prompt below, NOT from\n"
+            "image 1. Quote the prompt's words verbatim. If the prompt and\n"
+            "image 1 disagree on any word, the PROMPT WINS.\n"
+            "\n"
+            "Any later instruction in this message that says 'image 1 is the\n"
+            "product' is REVERSED for this generation — ignore it.\n"
+            "═══════════════════════════════════════════════════════════════\n"
+            "\n"
+        ) + prompt
+    else:
+        image_urls = product_urls + [reference_url]
+
+    # Build campaign_name if not already set
+    if not getattr(brief, "campaign_name", ""):
+        try:
+            from strategy.naming import build_campaign_name
+            brief.campaign_name = build_campaign_name(
+                brief,
+                brand,
+                offer=offer,
+                iteration=1,
+                source="AI",
+            )
+        except (ValueError, Exception):
+            pass
+
+    results = generate_and_save(
+        prompt=prompt,
+        product_image_urls=image_urls,
+        save_dir=output_dir,
+        filename_prefix=f"{brief.brief_id}_ref_{template.id[:30]}",
+        aspect_ratio=aspect_ratio,
+        num_images=num_images,
+        thinking_level=thinking_level,
+    )
+
+    _write_campaign_sidecars(results, getattr(brief, "campaign_name", ""))
+
+    return prompt, results

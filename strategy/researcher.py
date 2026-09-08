@@ -16,6 +16,7 @@ extraction, and structured-data parsing are original to AdCreatives.
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlparse
 
@@ -315,9 +316,13 @@ def fetch_shopify_bestsellers(base_url: str, page_count: int = 3) -> list[tuple[
     return pages
 
 
-# Match both relative ("/products/...") and absolute ("https://x.com/products/...") hrefs
+# Match relative ("/products/..."), absolute ("https://x.com/products/..."),
+# and collection-scoped ("/collections/all/products/...") hrefs — many themes
+# only emit the collection-scoped form (Pipsticks: 24 scoped vs 1 bare,
+# Self-Care Is For Everyone: 24 vs 0, observed 2026-07-07). The captured
+# group stays the bare /products/<slug> path, which is the canonical PDP URL.
 _PRODUCT_HREF = re.compile(
-    r'href=["\'](?:https?://[^"\'/]+)?(/products/[a-z0-9][a-z0-9_-]*)(?:[?#][^"\']*)?["\']',
+    r'href=["\'](?:https?://[^"\'/]+)?(?:/collections/[a-z0-9_-]+)?(/products/[a-z0-9][a-z0-9_-]*)(?:[?#][^"\']*)?["\']',
     re.IGNORECASE,
 )
 
@@ -597,13 +602,35 @@ def fetch_product_pages_with_raw(urls: list[str]) -> dict[str, dict[str, str]]:
         timeout=15.0, follow_redirects=True, headers=BROWSER_HEADERS
     ) as client:
         for url in urls:
-            try:
-                resp = client.get(url)
-            except (httpx.RequestError, httpx.TimeoutException):
+            # Retries with growing backoff. Inside onboard, stage 1 just burst
+            # ~10+ requests at the same domain, and Shopify/Cloudflare
+            # rate-limit windows outlast a short retry — a failure here
+            # silently skips the product's entire enrichment AND review pull.
+            # Observed live: fails at +1.5s, succeeds minutes later; 4s + 12s
+            # bridges the window.
+            raw = None
+            last_failure = ""
+            for backoff in (4.0, 12.0, 0.0):
+                try:
+                    resp = client.get(url)
+                except (httpx.RequestError, httpx.TimeoutException) as e:
+                    resp = None
+                    last_failure = f"{type(e).__name__}: {str(e)[:80]}"
+                if resp is not None:
+                    if resp.status_code == 200:
+                        raw = resp.text
+                        break
+                    last_failure = f"HTTP {resp.status_code}"
+                if backoff:
+                    time.sleep(backoff)
+            if raw is None:
+                import sys
+                print(
+                    f"[fetch_product_pages_with_raw] giving up on {url} "
+                    f"after 3 attempts ({last_failure})",
+                    file=sys.stderr,
+                )
                 continue
-            if resp.status_code != 200:
-                continue
-            raw = resp.text
             cleaned = clean_html(raw)[:MAX_HTML_PER_PAGE]
             if cleaned:
                 results[url] = {"raw": raw, "cleaned": cleaned}

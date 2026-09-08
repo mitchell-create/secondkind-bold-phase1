@@ -446,6 +446,9 @@ def render_client_detail(selected: str):
         "🗺️ Strategy",
         "📝 Briefs",
         "🧩 Matrix",
+        "🖼️ Ads",
+        "✨ Remix",
+        "📐 Templates",
         "💵 Costs",
         "⚡ Actions",
     ])
@@ -475,8 +478,14 @@ def render_client_detail(selected: str):
     with tabs[11]:
         _render_matrix_tab(selected)
     with tabs[12]:
-        _render_costs_tab(selected)
+        _render_ads_tab(selected)
     with tabs[13]:
+        _render_remix_tab(selected)
+    with tabs[14]:
+        _render_templates_tab(selected)
+    with tabs[15]:
+        _render_costs_tab(selected)
+    with tabs[16]:
         _render_actions_tab(selected)
 
 
@@ -1659,6 +1668,1204 @@ def _render_matrix_tab(selected):
             _render_matrix_row(selected, r, products)
 
 
+def _render_ads_tab(selected):
+    """Show generated ad images, grouped by variant folder.
+
+    Discovers every directory under ai-ads/<client>/ that starts with `images`.
+    The default `images/` folder is labeled "current"; folders like
+    `images-baseline/`, `images-patch-a/`, etc. show as their suffix.
+    Lets you compare runs side-by-side without leaving the dashboard.
+    """
+    client_root = AI_ADS_DIR / selected
+    if not client_root.exists():
+        st.info(
+            f"No generated ad images yet. Run: "
+            f"`adc generate --client {selected} --pick 1,2,3`"
+        )
+        return
+
+    # Find every images* folder for this client
+    variant_dirs: list[tuple[str, "Path"]] = []
+    for d in sorted(client_root.iterdir()):
+        if not d.is_dir() or not d.name.startswith("images"):
+            continue
+        label = "current" if d.name == "images" else d.name.removeprefix("images-")
+        if any(d.glob("*.png")):
+            variant_dirs.append((label, d))
+
+    if not variant_dirs:
+        st.info(
+            f"No generated ad images yet. Run: "
+            f"`adc generate --client {selected} --pick 1,2,3`"
+        )
+        return
+
+    # Aggregate: build {brief_id: {variant_label: [file, file, ...]}}
+    aggregated: dict[str, dict[str, list]] = {}
+    for label, d in variant_dirs:
+        for f in sorted(d.glob("*.png")):
+            brief_id = f.stem.rsplit("_", 1)[0]
+            aggregated.setdefault(brief_id, {}).setdefault(label, []).append(f)
+
+    # Header KPIs
+    total_imgs = sum(len(list(d.glob("*.png"))) for _, d in variant_dirs)
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Total images", total_imgs)
+    m2.metric("Variant folders", len(variant_dirs))
+    m3.metric("Unique briefs", len(aggregated))
+
+    # View toggle: compare across variants OR show all images from a single variant
+    if len(variant_dirs) > 1:
+        view_mode = st.radio(
+            "View mode",
+            ["📊 Compare across variants", "📁 Single variant only"],
+            horizontal=True,
+            key="ads_view_mode",
+        )
+    else:
+        view_mode = "📁 Single variant only"
+
+    if view_mode == "📊 Compare across variants":
+        # Per brief, show one row across all variants (side by side)
+        st.caption(
+            "Each row is one brief; each column is one variant folder. "
+            "Same brief_id across columns means same brief, different pipeline run."
+        )
+        variant_labels = [label for label, _ in variant_dirs]
+        for brief_id, by_variant in aggregated.items():
+            st.markdown(f"**Brief:** `{brief_id}`")
+            cols = st.columns(len(variant_labels))
+            for i, label in enumerate(variant_labels):
+                with cols[i]:
+                    st.caption(f"_{label}_")
+                    files = by_variant.get(label, [])
+                    if not files:
+                        st.markdown("_(not generated for this variant)_")
+                    else:
+                        for f in files:
+                            st.image(str(f), use_container_width=True)
+                            aspect = f.stem.rsplit("_", 1)[-1] if "_" in f.stem else ""
+                            if aspect:
+                                st.caption(f"`{aspect}`")
+            st.divider()
+    else:
+        # Single-variant view: pick a folder and show its images in a 3-col grid
+        labels = [label for label, _ in variant_dirs]
+        chosen_label = st.selectbox(
+            "Variant folder",
+            labels,
+            index=labels.index("current") if "current" in labels else 0,
+            key="ads_variant_picker",
+        )
+        chosen_dir = next(d for label, d in variant_dirs if label == chosen_label)
+        files = sorted(chosen_dir.glob("*.png"))
+        st.caption(f"`{chosen_dir.relative_to(AI_ADS_DIR.parent)}` — {len(files)} image(s)")
+
+        cols_per_row = 3
+        for i in range(0, len(files), cols_per_row):
+            row = st.columns(cols_per_row)
+            for j, f in enumerate(files[i:i + cols_per_row]):
+                with row[j]:
+                    brief_id = f.stem.rsplit("_", 1)[0]
+                    aspect = f.stem.rsplit("_", 1)[-1] if "_" in f.stem else ""
+                    st.image(str(f), use_container_width=True)
+                    st.caption(f"`{brief_id}` ({aspect})")
+
+
+def _list_remix_runs(selected: str) -> list[dict]:
+    """List all remix runs for a client, newest first.
+
+    Each entry has: timestamp, dir, analysis, briefs, reference (Path or None),
+    images (list[Path]), analyze_only (bool — True when the run is paused at
+    the analyze step awaiting operator review)."""
+    remixes_dir = CLIENTS_DIR / selected / "remixes"
+    if not remixes_dir.exists():
+        return []
+    runs: list[dict] = []
+    for d in sorted(remixes_dir.iterdir(), reverse=True):
+        if not d.is_dir():
+            continue
+        analysis_path = d / "analysis.yaml"
+        if not analysis_path.exists():
+            # No analysis yet — incomplete or corrupt run, skip.
+            continue
+        try:
+            analysis = yaml.safe_load(analysis_path.read_text(encoding="utf-8")) or {}
+        except Exception:
+            continue
+        # briefs.yaml is optional — analyze-only runs don't have it yet.
+        briefs_path = d / "briefs.yaml"
+        briefs: list = []
+        if briefs_path.exists():
+            try:
+                briefs = yaml.safe_load(briefs_path.read_text(encoding="utf-8")) or []
+            except Exception:
+                briefs = []
+        analyze_only = (d / ".analyze_only.txt").exists()
+        reference = None
+        for ext in ("png", "jpg", "jpeg", "webp"):
+            cand = d / f"reference.{ext}"
+            if cand.exists():
+                reference = cand
+                break
+        images_dir = d / "images"
+        images = sorted(images_dir.glob("*.png")) if images_dir.exists() else []
+        runs.append({
+            "timestamp": d.name,
+            "dir": d,
+            "analysis": analysis,
+            "briefs": briefs,
+            "reference": reference,
+            "images": images,
+            "analyze_only": analyze_only,
+        })
+    return runs
+
+
+def _render_remix_tab(selected):
+    """Remix an example ad for your product — upload an image (or paste a
+    Foreplay link), tune variation count + fidelity, then generate briefs and
+    images. Past runs are listed below the form, newest first."""
+    st.markdown("### ✨ Remix an example ad")
+    st.caption(
+        "Drop in an ad you like (local file or Foreplay link). The system "
+        "extracts its strategic + visual DNA and produces N variations for "
+        "your product, mixing high-fidelity near-clones with persona-tuned "
+        "variants."
+    )
+
+    products_dir = CLIENTS_DIR / selected / "products"
+    product_slugs: list[str] = []
+    if products_dir.exists():
+        for f in sorted(products_dir.glob("*.yaml")):
+            if f.name == "example-product.yaml":
+                continue
+            product_slugs.append(f.stem)
+
+    if not product_slugs:
+        st.warning(
+            f"No products configured for `{selected}`. Run `adc research --client {selected} --url <site>` first."
+        )
+        return
+
+    avatars_dir = CLIENTS_DIR / selected / "avatars"
+    avatar_count = (
+        len([p for p in avatars_dir.glob("*.yaml") if not p.name.startswith("_")])
+        if avatars_dir.exists()
+        else 0
+    )
+    if avatar_count == 0:
+        legacy = CLIENTS_DIR / selected / "avatar.yaml"
+        if legacy.exists():
+            avatar_count = 1
+    if avatar_count == 0:
+        st.warning(
+            f"No avatars yet for `{selected}`. Run `adc personas --client {selected}` first — "
+            "the remixer needs personas to vary across."
+        )
+        return
+
+    with st.expander("➕ New remix", expanded=True):
+        source_mode = st.radio(
+            "Reference source",
+            ["Upload image", "Foreplay URL / ID"],
+            horizontal=True,
+            key=f"remix_source_{selected}",
+        )
+
+        ref_path: Path | None = None
+        foreplay_ref: str = ""
+
+        if source_mode == "Upload image":
+            uploaded = st.file_uploader(
+                "Reference ad image",
+                type=["png", "jpg", "jpeg", "webp"],
+                key=f"remix_upload_{selected}",
+                help="PNG/JPG/WEBP of the ad you want to remix",
+            )
+            if uploaded is not None:
+                upload_dir = REPO_ROOT / "references" / "_dashboard_uploads"
+                upload_dir.mkdir(parents=True, exist_ok=True)
+                stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                ext = Path(uploaded.name).suffix.lower() or ".png"
+                ref_path = upload_dir / f"{selected}_{stamp}{ext}"
+                ref_path.write_bytes(uploaded.getbuffer())
+                col_img, _col_sp = st.columns([1, 2])
+                with col_img:
+                    st.image(str(ref_path), caption="Reference preview", use_container_width=True)
+        else:
+            foreplay_ref = st.text_input(
+                "Foreplay URL or numeric ad ID",
+                placeholder="https://app.foreplay.co/ad/12345  (or just 12345)",
+                key=f"remix_foreplay_{selected}",
+            ).strip()
+
+        col_p, col_v, col_h, col_m = st.columns([2, 1, 1, 1])
+        with col_p:
+            chosen_product = st.selectbox(
+                "Product", product_slugs, key=f"remix_product_{selected}"
+            )
+        with col_v:
+            variations = st.number_input(
+                "Variations",
+                min_value=1,
+                max_value=10,
+                value=5,
+                key=f"remix_variations_{selected}",
+            )
+        with col_h:
+            high_fidelity = st.number_input(
+                "High-fid",
+                min_value=0,
+                max_value=int(variations),
+                value=min(2, int(variations)),
+                key=f"remix_high_{selected}",
+                help="Near-clones of the reference (same setting/person/typography)",
+            )
+        with col_m:
+            medium_fidelity = st.number_input(
+                "Medium-fid",
+                min_value=0,
+                max_value=int(variations),
+                value=min(2, max(0, int(variations) - int(high_fidelity))),
+                key=f"remix_medium_{selected}",
+                help="Core identity matches, small persona-tuned variation",
+            )
+
+        low_fidelity = max(0, int(variations) - int(high_fidelity) - int(medium_fidelity))
+        st.caption(
+            f"Mix: {int(high_fidelity)} high · {int(medium_fidelity)} medium · {low_fidelity} low  ·  "
+            f"Est cost: ~${0.10 * int(variations):.2f}"
+        )
+
+        cd_key = f"remix_cd_{selected}"
+        creative_direction = st.text_area(
+            "Creative direction (optional)",
+            key=cd_key,
+            placeholder=(
+                "e.g. 'two callouts in primary brand color + accent color, "
+                "text bubble at top, hand from bottom holding product, no FDA disclaimer'"
+            ),
+            height=80,
+            help=(
+                "Pre-generation directive applied to ALL variations. Use it to lock in "
+                "structural elements (text bubble, two callouts) or styling cues (brand "
+                "colors for pills, generous whitespace). Highest-priority constraint — "
+                "overrides any conflicting pattern from the reference DNA."
+            ),
+        )
+
+        # Scene cleanup — non-text elements to remove (e.g., "remove the dog"
+        # when remixing a pet ad for a human supplement). Fires in staged-mode
+        # pass 1 alongside the product swap; also injects into the single-shot
+        # differential prompt. Without this, the dog stays in the picture.
+        sc_key = f"remix_sc_{selected}"
+        scene_cleanup = st.text_area(
+            "Scene cleanup — remove from scene (optional)",
+            key=sc_key,
+            placeholder=(
+                "e.g. 'remove the dog' (when remixing a pet ad for human use)\n"
+                "'remove the second person in the background'\n"
+                "'remove the gym equipment behind the model'"
+            ),
+            height=70,
+            help=(
+                "Non-text elements to remove from the scene. Different from "
+                "creative direction (which adds/changes styling) — this "
+                "specifically removes things. Use it when the reference ad "
+                "has scene elements that don't fit your brand (a dog in a "
+                "pet-supplement ad becoming a human-supplement remix, etc.)."
+            ),
+        )
+
+        # Model descriptor — pass-3 (staged) NB2 model swap. Free-text prose.
+        # Skip this and pass 3 either uses Higgsfield Soul (if persona has
+        # a trained soul) or no-ops (final = stage 2).
+        md_key = f"remix_md_{selected}"
+        model_descriptor = st.text_input(
+            "Model descriptor for stage 3 (optional, staged mode only)",
+            key=md_key,
+            placeholder=(
+                "e.g. 'middle-aged white woman', "
+                "'early-40s Asian man in casual workwear', "
+                "'late-30s Black woman, athletic build'"
+            ),
+            help=(
+                "Free-text description of the model/person to swap in during "
+                "staged-mode pass 3. NB2 edits the stage-2 image to match. "
+                "When set, this is preferred over Higgsfield Soul (which "
+                "needs a trained soul_id per persona). Leave blank to fall "
+                "back to soul_2 OR to skip pass 3 entirely."
+            ),
+        )
+
+        offer_key = f"remix_offer_{selected}"
+        offer_input = st.text_input(
+            "Offer code (optional, slot 9 of the naming taxonomy)",
+            value="NONE",
+            key=offer_key,
+            placeholder="e.g. FREESHIP, BFCM25, 20OFF",
+            help=(
+                "Promo code that appears in the campaign name (slot 9). "
+                "Alphanumeric only, capped at 12 chars. Use 'NONE' for ads without an offer."
+            ),
+        )
+
+        # ── Prompt mode ──────────────────────────────────────────────────
+        # Strategic: verbose ~1500-word prompts that describe a fresh ad
+        # inspired by the reference. Best for new-brief generation.
+        # Differential: vision-extract source text, Claude maps source→target
+        # via the brief, produce a short surgical-edit prompt. Best for
+        # layout-faithful remixes like us-vs-them comparison ads.
+        mode = st.radio(
+            "Prompt mode",
+            ["Strategic (default — fresh ad inspired by the reference)",
+             "Differential (surgical edit — swap product + text, preserve layout)"],
+            index=0,
+            key=f"remix_mode_{selected}",
+            horizontal=False,
+            help=(
+                "Strategic produces verbose prompts that describe a brand-new ad. "
+                "Best when you want psychology + persona to drive a different visual. "
+                "Differential produces short edit-style prompts that swap product and "
+                "text while preserving layout, fonts, decorative marks, and lighting. "
+                "Best for us-vs-them comparison ads or any time you want the result to "
+                "look nearly identical to the reference with surgical content changes. "
+                "Differential mode pairs naturally with 'Creative direction' above — "
+                "any text you put there becomes the ONLY allowed deviation (e.g. "
+                "'change background to spring grassy field')."
+            ),
+        )
+        mode_flag = "differential" if mode.lower().startswith("differential") else "strategic"
+
+        # Analyze-first option — runs only the cheap analysis + text
+        # extraction passes (~$0.04), pauses, and lets the operator review
+        # what was read before paying for brief generation (~$0.30).
+        analyze_first = st.checkbox(
+            "📷 Analyze first — review extraction before paying for briefs (recommended)",
+            value=True,
+            key=f"remix_analyze_first_{selected}",
+            help=(
+                "ON: runs reference analysis + text extraction only (~$0.04), "
+                "pauses the run. You review the analysis + text inventory in "
+                "the past-remixes section below, edit any vision misreads, "
+                "then click Continue to generate briefs (~$0.30). Catches "
+                "wrong-product-label extractions or mis-classified ad types "
+                "BEFORE they cost money downstream.\n"
+                "OFF: one-shot run — analyze + extract + generate all at "
+                "once."
+            ),
+        )
+
+        ready = (ref_path is not None) or bool(foreplay_ref)
+        if not ready:
+            st.info("Upload an image or paste a Foreplay URL/ID to continue.")
+        else:
+            button_suffix = " (differential)" if mode_flag == "differential" else ""
+            if st.button(
+                f"✨ Generate {int(variations)} remix variation(s){button_suffix}",
+                type="primary",
+                use_container_width=True,
+                key=f"remix_run_{selected}",
+            ):
+                args = [
+                    "remix",
+                    "--client", selected,
+                    "--product", chosen_product,
+                    "--variations", str(int(variations)),
+                    "--high-fidelity", str(int(high_fidelity)),
+                    "--medium-fidelity", str(int(medium_fidelity)),
+                    "--offer", offer_input.strip() or "NONE",
+                    "--mode", mode_flag,
+                ]
+                if creative_direction.strip():
+                    args += ["--creative-direction", creative_direction.strip()]
+                if scene_cleanup.strip():
+                    args += ["--scene-cleanup", scene_cleanup.strip()]
+                if model_descriptor.strip():
+                    args += ["--model-descriptor", model_descriptor.strip()]
+                if analyze_first:
+                    args += ["--analyze-only"]
+                if ref_path is not None:
+                    args += ["--reference", str(ref_path)]
+                else:
+                    args += ["--foreplay-url", foreplay_ref]
+
+                cost_estimate = 0.04 if analyze_first else 0.10 * int(variations)
+                label_phase = (
+                    "Analyzing reference"
+                    if analyze_first else
+                    f"Remixing for {selected}"
+                )
+                run_adc_command(
+                    args,
+                    label=(
+                        f"{label_phase} "
+                        f"(~${cost_estimate:.2f}, mode={mode_flag}"
+                        f"{', analyze-only' if analyze_first else ''})"
+                    ),
+                )
+                st.rerun()
+
+    st.divider()
+
+    runs = _list_remix_runs(selected)
+    if not runs:
+        st.info("No remix runs yet. Use the form above to create your first one.")
+        return
+
+    st.markdown(f"### 📚 Past remixes  · _{len(runs)} run(s)_")
+
+    for run in runs:
+        analysis = run["analysis"]
+        briefs = run["briefs"]
+        images = run["images"]
+        run_dir: Path = run["dir"]
+
+        ad_type = analysis.get("ad_type") or "—"
+        levers = analysis.get("psych_levers") or []
+        n_briefs = len(briefs)
+        n_images = len(images)
+        paused_badge = "  ·  🛑 PAUSED — needs review" if run.get("analyze_only") else ""
+        title = (
+            f"🗓️ {run['timestamp']}  ·  "
+            f"{ad_type}  ·  {n_briefs} brief(s)  ·  "
+            f"{n_images} image(s)"
+            f"{paused_badge}"
+        )
+
+        with st.expander(title, expanded=(run is runs[0])):
+            top_l, top_r = st.columns([1, 2])
+            with top_l:
+                if run["reference"] is not None:
+                    st.image(str(run["reference"]), caption="Reference", use_container_width=True)
+                else:
+                    st.caption("(no reference image on disk)")
+            with top_r:
+                st.markdown(f"**Ad type:** `{ad_type}` "
+                            f"_(conf {analysis.get('ad_type_confidence', 0):.2f})_")
+                st.markdown(f"**Psych levers:** {', '.join(levers) or '—'}")
+                st.markdown(f"**Framework:** `{analysis.get('framework', '—')}`")
+                st.markdown(f"**Creative mechanic:** {analysis.get('creative_mechanic', '—')}")
+                st.markdown(f"**Visual format:** {analysis.get('visual_format', '—')}")
+                if analysis.get("pain_attacked"):
+                    st.markdown(f"**Pain attacked:** {analysis['pain_attacked']}")
+                if analysis.get("enemy"):
+                    st.markdown(f"**Enemy:** {analysis['enemy']}")
+
+            st.markdown("---")
+            st.markdown("**Briefs**")
+            rows = []
+            for i, b in enumerate(briefs, 1):
+                rows.append({
+                    "#": i,
+                    "Persona": b.get("persona", "—"),
+                    "Hook": (b.get("hook", "") or "")[:90],
+                    "CTA": b.get("cta", "—"),
+                })
+            if rows:
+                st.dataframe(
+                    pd.DataFrame(rows),
+                    hide_index=True,
+                    use_container_width=True,
+                    key=f"remix_briefs_{run['timestamp']}",
+                )
+
+            # Trending alternatives — one row per brief, collapsed by default.
+            any_trending = any(
+                (b.get("trending_format_recommendations") or [])
+                for b in briefs
+            )
+            if any_trending:
+                with st.expander("🔥 Trending format alternatives (top 3 per brief)", expanded=False):
+                    for b in briefs:
+                        recs = b.get("trending_format_recommendations") or []
+                        if not recs:
+                            continue
+                        st.markdown(f"**{b.get('persona', '—')}** — `{b.get('brief_id', '?')[-6:]}`")
+                        for rec in recs[:3]:
+                            rank = rec.get("rank", "?")
+                            name = rec.get("name", "—")
+                            fmt_type = rec.get("format_type", "—")
+                            complexity = rec.get("production_complexity", "—")
+                            rationale = rec.get("rationale", "")
+                            st.markdown(
+                                f"  • **#{rank} {name}**  "
+                                f"`{fmt_type}` · `{complexity}-complexity` — {rationale}"
+                            )
+                        st.markdown("")
+
+            # Analyze-only state: run is paused after analysis + extraction,
+            # awaiting operator review of the text inventory before brief
+            # generation kicks off. The sentinel file is the marker.
+            analyze_only_sentinel = run_dir / ".analyze_only.txt"
+            inventory_file = run_dir / "source_text_inventory.yaml"
+            if analyze_only_sentinel.exists():
+                with st.expander(
+                    "🛑 PAUSED — review text inventory, then continue",
+                    expanded=True,
+                ):
+                    st.warning(
+                        "This run was started in **Analyze first** mode. "
+                        "Brief generation hasn't happened yet (~$0.30 saved). "
+                        "Review the extracted text inventory below — remove "
+                        "anything the vision misread (product-label text "
+                        "should already be filtered, but if any slipped in, "
+                        "delete those rows). Then click **Continue**."
+                    )
+
+                    # Editable text inventory
+                    if inventory_file.exists():
+                        try:
+                            inv = yaml.safe_load(
+                                inventory_file.read_text(encoding="utf-8")
+                            ) or {}
+                            items = inv.get("source_texts") or []
+                        except Exception:
+                            items = []
+                        if items:
+                            rows = []
+                            for item in items:
+                                if isinstance(item, dict):
+                                    rows.append({
+                                        "Text": str(item.get("text", "")),
+                                        "Position": str(item.get("position", "") or ""),
+                                        "Role": str(item.get("role", "") or ""),
+                                    })
+                                else:
+                                    rows.append({
+                                        "Text": str(item),
+                                        "Position": "",
+                                        "Role": "callout",
+                                    })
+                            edited_inv = st.data_editor(
+                                pd.DataFrame(rows),
+                                hide_index=True,
+                                use_container_width=True,
+                                num_rows="dynamic",
+                                column_config={
+                                    "Text": st.column_config.TextColumn(
+                                        "Text",
+                                        help="Editorial text extracted from the ad. Delete the row if it's wrong or unwanted.",
+                                    ),
+                                    "Position": st.column_config.TextColumn(
+                                        "Position", width="small",
+                                    ),
+                                    "Role": st.column_config.TextColumn(
+                                        "Role", width="small",
+                                    ),
+                                },
+                                key=f"inv_editor_{run['timestamp']}",
+                            )
+
+                            cont_l, cont_r = st.columns([1, 2])
+                            with cont_l:
+                                cont_variations = st.number_input(
+                                    "Variations",
+                                    min_value=1, max_value=10, value=5,
+                                    key=f"cont_var_{run['timestamp']}",
+                                )
+                            with cont_r:
+                                cont_hf = st.number_input(
+                                    "High-fid",
+                                    min_value=0, max_value=int(cont_variations),
+                                    value=min(2, int(cont_variations)),
+                                    key=f"cont_hf_{run['timestamp']}",
+                                )
+                            if st.button(
+                                f"✨ Save inventory + Continue ({int(cont_variations)} variation(s), ~${0.10 * int(cont_variations):.2f})",
+                                type="primary",
+                                key=f"cont_btn_{run['timestamp']}",
+                                use_container_width=True,
+                            ):
+                                # Save edited inventory back to disk first.
+                                new_items: list[dict] = []
+                                for _, row in edited_inv.iterrows():
+                                    text = str(row.get("Text", "")).strip()
+                                    if not text:
+                                        continue
+                                    new_items.append({
+                                        "text": text,
+                                        "position": str(row.get("Position", "") or ""),
+                                        "role": str(row.get("Role", "callout") or "callout"),
+                                        "word_count": len(text.split()),
+                                        "char_count": len(text),
+                                    })
+                                inventory_file.write_text(
+                                    yaml.dump(
+                                        {"source_texts": new_items},
+                                        default_flow_style=False,
+                                        sort_keys=False,
+                                        allow_unicode=True,
+                                    ),
+                                    encoding="utf-8",
+                                )
+                                cont_med = max(
+                                    0, int(cont_variations) - int(cont_hf)
+                                ) // 2
+                                run_adc_command(
+                                    [
+                                        "remix-continue",
+                                        "--remix-dir", str(run_dir),
+                                        "--variations", str(int(cont_variations)),
+                                        "--high-fidelity", str(int(cont_hf)),
+                                        "--medium-fidelity", str(int(cont_med)),
+                                    ],
+                                    label=(
+                                        f"Continuing {run['timestamp']} — "
+                                        f"{int(cont_variations)} variation(s), "
+                                        f"~${0.10 * int(cont_variations):.2f}"
+                                    ),
+                                )
+                                st.rerun()
+                        else:
+                            st.info(
+                                "No text inventory was extracted (probably "
+                                "strategic mode, or the ad has no overlay "
+                                "text). You can still continue."
+                            )
+                            if st.button(
+                                "✨ Continue (no inventory edits)",
+                                type="primary",
+                                key=f"cont_btn_nox_{run['timestamp']}",
+                            ):
+                                run_adc_command(
+                                    [
+                                        "remix-continue",
+                                        "--remix-dir", str(run_dir),
+                                    ],
+                                    label=f"Continuing {run['timestamp']}",
+                                )
+                                st.rerun()
+
+            # Mappings review — differential-mode runs only. Lets the operator
+            # edit each source→target mapping before generating images, so the
+            # final image text matches what they'd type into Higgsfield by
+            # hand. After save, `remix-rebuild-prompts` regenerates the .txt
+            # prompt files; the operator then hits the Generate-images button.
+            mappings_dir_run = run_dir / "mappings"
+            if mappings_dir_run.exists():
+                with st.expander(
+                    "✏️ Review & edit text mappings (differential mode)",
+                    expanded=False,
+                ):
+                    st.caption(
+                        "Each source line was vision-extracted from the reference ad. "
+                        "Edit the **Target** column to control exactly what text gets "
+                        "rendered in the final image. `[REMOVE]` deletes the element; "
+                        "`[PRESERVE AS-IS]` keeps the source text unchanged. "
+                        "After editing, click **Save & rebuild prompts** below, then "
+                        "use the Generate-images button as usual."
+                    )
+
+                    # Per-brief editable mapping table. Keep state in session so
+                    # multi-brief edits don't lose unsaved work on rerun.
+                    edited_state_key = f"remix_mapping_edits_{run['timestamp']}"
+                    if edited_state_key not in st.session_state:
+                        st.session_state[edited_state_key] = {}
+
+                    for b in briefs:
+                        bid = b.get("brief_id", "")
+                        map_file = mappings_dir_run / f"{bid}.yaml"
+                        if not map_file.exists():
+                            continue
+                        try:
+                            md = yaml.safe_load(map_file.read_text(encoding="utf-8")) or {}
+                            mapping_items = md.get("mapping") or []
+                        except Exception:
+                            mapping_items = []
+                        if not isinstance(mapping_items, list) or not mapping_items:
+                            continue
+
+                        # Detect failure modes so the operator sees them.
+                        # 1. [MAPPING_FAILED] sentinel = Claude transient
+                        #    error during mapping; rows need manual edit.
+                        # 2. All-identity (source==target everywhere) = either
+                        #    Claude returned malformed YAML or mapping was
+                        #    never run. Also needs manual attention.
+                        failed_rows = sum(
+                            1 for m in mapping_items
+                            if isinstance(m, dict)
+                            and str(m.get("target", "")).startswith("[MAPPING_FAILED")
+                        )
+                        identity_rows = sum(
+                            1 for m in mapping_items
+                            if isinstance(m, dict)
+                            and str(m.get("source", "")).strip()
+                            == str(m.get("target", "")).strip()
+                            and str(m.get("source", "")).strip()
+                        )
+                        warning_bits: list[str] = []
+                        if failed_rows:
+                            warning_bits.append(
+                                f"🛑 {failed_rows} row(s) failed during mapping — edit them"
+                            )
+                        if identity_rows == len(mapping_items) and identity_rows > 0:
+                            warning_bits.append(
+                                f"⚠️ All {identity_rows} rows are identity "
+                                f"(source==target) — mapper may have silently "
+                                f"failed; edit each target"
+                            )
+                        warning_str = (
+                            "  ·  " + "  ·  ".join(warning_bits) if warning_bits else ""
+                        )
+
+                        st.markdown(
+                            f"**{b.get('persona', '—')}** — `{bid[-6:]}` "
+                            f"_({len(mapping_items)} swap(s))_{warning_str}"
+                        )
+
+                        rows = []
+                        for item in mapping_items:
+                            if not isinstance(item, dict):
+                                continue
+                            rows.append({
+                                "Source": str(item.get("source", "")),
+                                "Position": str(item.get("position", "") or ""),
+                                "Role": str(item.get("role", "") or ""),
+                                "Target": str(item.get("target", "")),
+                            })
+
+                        editor_key = f"map_editor_{run['timestamp']}_{bid}"
+                        edited = st.data_editor(
+                            pd.DataFrame(rows),
+                            hide_index=True,
+                            use_container_width=True,
+                            num_rows="fixed",
+                            disabled=("Source", "Position", "Role"),
+                            column_config={
+                                "Source": st.column_config.TextColumn(
+                                    "Source",
+                                    help="Vision-extracted source text (read-only)",
+                                ),
+                                "Position": st.column_config.TextColumn(
+                                    "Position",
+                                    help="Where this element sits in the source",
+                                    width="small",
+                                ),
+                                "Role": st.column_config.TextColumn(
+                                    "Role",
+                                    help="What this slot does in the ad",
+                                    width="small",
+                                ),
+                                "Target": st.column_config.TextColumn(
+                                    "Target",
+                                    help=(
+                                        "What to render in its place. Use "
+                                        "[REMOVE] or [PRESERVE AS-IS] for "
+                                        "special handling."
+                                    ),
+                                ),
+                            },
+                            key=editor_key,
+                        )
+                        # Stash the edited DataFrame so the save-button
+                        # handler below picks up edits from every brief.
+                        st.session_state[edited_state_key][bid] = edited
+
+                    save_l, save_r = st.columns([1, 3])
+                    with save_l:
+                        if st.button(
+                            "💾 Save & rebuild prompts",
+                            key=f"remix_map_save_{run['timestamp']}",
+                            use_container_width=True,
+                            help=(
+                                "Writes the edited mappings back to "
+                                "mappings/*.yaml and runs "
+                                "`adc remix-rebuild-prompts` so prompt files "
+                                "reflect your edits. Free — no LLM calls."
+                            ),
+                        ):
+                            edits = st.session_state.get(edited_state_key, {})
+                            for bid, df in edits.items():
+                                map_file = mappings_dir_run / f"{bid}.yaml"
+                                try:
+                                    cur = yaml.safe_load(
+                                        map_file.read_text(encoding="utf-8")
+                                    ) or {}
+                                except Exception:
+                                    cur = {}
+                                cur_items = cur.get("mapping") or []
+                                # Replace target by source-text match; keep
+                                # the original ordering, position, role.
+                                tgt_by_src = {
+                                    str(row["Source"]): str(row["Target"])
+                                    for _, row in df.iterrows()
+                                }
+                                new_items: list[dict] = []
+                                for item in cur_items:
+                                    if not isinstance(item, dict):
+                                        continue
+                                    src = str(item.get("source", ""))
+                                    new_items.append({
+                                        "source": src,
+                                        "position": item.get("position", ""),
+                                        "role": item.get("role", "callout"),
+                                        "target": tgt_by_src.get(
+                                            src, item.get("target", "")
+                                        ),
+                                    })
+                                map_file.write_text(
+                                    yaml.dump(
+                                        {"mapping": new_items},
+                                        default_flow_style=False,
+                                        sort_keys=False,
+                                        allow_unicode=True,
+                                    ),
+                                    encoding="utf-8",
+                                )
+                            run_adc_command(
+                                [
+                                    "remix-rebuild-prompts",
+                                    "--remix-dir", str(run_dir),
+                                ],
+                                label=(
+                                    f"Rebuilding prompts for {run['timestamp']}"
+                                ),
+                            )
+                            st.rerun()
+                    with save_r:
+                        st.caption(
+                            "💡 Tip: after saving, re-run **Generate images** "
+                            "below to render with the edited text. Mapping "
+                            "edits are free; image regeneration costs the "
+                            "usual ~$0.08/brief."
+                        )
+
+            st.markdown("---")
+            if images:
+                st.markdown(f"**Images** ({len(images)})")
+                # Group images by brief_id so each idea's versions appear together.
+                briefs_by_id = {b["brief_id"]: b for b in briefs}
+                groups: dict[str, list[Path]] = {}
+                for img in images:
+                    matched_id = next(
+                        (bid for bid in briefs_by_id if img.stem.startswith(bid)),
+                        None,
+                    )
+                    if matched_id:
+                        groups.setdefault(matched_id, []).append(img)
+                    else:
+                        groups.setdefault("__unmatched__", []).append(img)
+
+                for bid, brief_imgs in groups.items():
+                    if bid == "__unmatched__":
+                        st.caption("Images without a matching brief:")
+                    else:
+                        brief = briefs_by_id[bid]
+                        persona = brief.get("persona", "—")
+                        hook_preview = (brief.get("hook", "") or "")[:80]
+                        st.markdown(
+                            f"#### {persona}  ·  _{hook_preview}_"
+                            if hook_preview
+                            else f"#### {persona}"
+                        )
+
+                    # Sort: original first (no _v suffix), then v2, v3, ...
+                    def _version_key(p: Path) -> tuple[int, str]:
+                        import re as _re
+                        m = _re.search(r"_v(\d+)", p.stem)
+                        return (int(m.group(1)) if m else 1, p.name)
+                    brief_imgs_sorted = sorted(brief_imgs, key=_version_key)
+
+                    cols_per_row = 3
+                    for i in range(0, len(brief_imgs_sorted), cols_per_row):
+                        row = st.columns(cols_per_row)
+                        for j, img in enumerate(brief_imgs_sorted[i:i + cols_per_row]):
+                            with row[j]:
+                                st.image(str(img), use_container_width=True)
+                                # Show "Original" / "v2" / "v2 (a)" etc.
+                                import re as _re
+                                m = _re.search(r"_v(\d+)(?:_([a-z]))?", img.stem)
+                                if m:
+                                    suffix = f"v{m.group(1)}"
+                                    if m.group(2):
+                                        suffix += f" ({m.group(2)})"
+                                    st.caption(suffix)
+                                else:
+                                    st.caption("Original")
+                                # Show Meta campaign name from the per-image
+                                # sidecar (preferred — has correct iteration)
+                                # or fall back to the brief's V1 name.
+                                sidecar = img.with_name(img.stem + "_campaign.txt")
+                                campaign_text = ""
+                                if sidecar.exists():
+                                    try:
+                                        campaign_text = sidecar.read_text(
+                                            encoding="utf-8"
+                                        ).strip()
+                                    except OSError:
+                                        campaign_text = ""
+                                if not campaign_text:
+                                    brief_obj = briefs_by_id.get(bid, {})
+                                    campaign_text = brief_obj.get("campaign_name", "") or ""
+                                if campaign_text:
+                                    st.code(campaign_text, language=None)
+
+                    # Per-brief refinement form
+                    if bid != "__unmatched__":
+                        with st.expander(f"🔄 Refine `{bid[-6:]}`", expanded=False):
+                            fb_key = f"refine_fb_{run['timestamp']}_{bid}"
+                            vn_key = f"refine_vn_{run['timestamp']}_{bid}"
+                            base_key = f"refine_base_{run['timestamp']}_{bid}"
+                            feedback = st.text_area(
+                                "What would you like to change?",
+                                key=fb_key,
+                                placeholder=(
+                                    "e.g. 'make the lighting warmer and lower the hand position', "
+                                    "or 'change the right-circle text to focus on bloat'"
+                                ),
+                                height=80,
+                                help=(
+                                    "Visual tweaks (color, position, mood) preserve the layout. "
+                                    "Copy changes (hook, callouts) rewrite the text."
+                                ),
+                            )
+
+                            # Build base-version selector. Default: Original
+                            # (so feedback doesn't compound on top of unwanted
+                            # changes from a previous refinement).
+                            import re as _re_b
+                            def _base_label(p: Path) -> str:
+                                m = _re_b.search(r"_v(\d+)(?:_([a-z]))?", p.stem)
+                                if m:
+                                    s = f"v{m.group(1)}"
+                                    if m.group(2):
+                                        s += f" ({m.group(2)})"
+                                    return s
+                                return "Original"
+                            base_options: list[tuple[str, str]] = []  # (label, filename)
+                            for p in brief_imgs_sorted:
+                                base_options.append((_base_label(p), p.name))
+                            default_idx = 0  # Original first in sorted order
+                            base_choice = st.selectbox(
+                                "Refine FROM which version?",
+                                options=range(len(base_options)),
+                                format_func=lambda i: base_options[i][0],
+                                index=default_idx,
+                                key=base_key,
+                                help=(
+                                    "Default 'Original' restarts from the clean v1 — recommended "
+                                    "if you want the change in isolation. Pick a later version to "
+                                    "stack feedback on top of previous refinements."
+                                ),
+                            )
+                            base_filename = base_options[base_choice][1]
+
+                            # ── Engine selector for refinement ────────────
+                            # Three options:
+                            #   HF Web nano_banana_flash — recommended; the
+                            #     real edit model behind cloud.higgsfield.ai.
+                            #     Single-image edit, feedback becomes the
+                            #     edit prompt. HF plan credits.
+                            #   fal NB2 — fal-hosted edit model; Claude
+                            #     rewrites the prompt incorporating feedback.
+                            #     Needs fal credits.
+                            #   Higgs Field Soul — identity-locked iterative;
+                            #     needs a trained Soul Character per persona.
+                            refine_engine_options = [
+                                "HF Web nano_banana_flash (RECOMMENDED — best edit fidelity)",
+                                "fal NB2 (Claude prompt-rewrite + product ref)",
+                                "Higgs Field Soul (identity-locked iterative)",
+                            ]
+                            refine_engine_choice = st.radio(
+                                "Engine",
+                                refine_engine_options,
+                                index=0,
+                                key=f"refine_engine_{run['timestamp']}_{bid}",
+                                help=(
+                                    "• **HF Web** — Higgsfield's real edit model. "
+                                    "Single-image edit; your feedback is the edit "
+                                    "prompt. Uses HF plan credits.\n"
+                                    "• **fal NB2** — fal-hosted edit; Claude rewrites "
+                                    "the whole prompt incorporating feedback. Uses fal "
+                                    "credits.\n"
+                                    "• **HF Soul** — for identity-locked iteration. "
+                                    "Needs a trained Soul Character on this persona."
+                                ),
+                            )
+                            refine_engine_id = (
+                                "hf-web" if refine_engine_choice.startswith("HF Web") else
+                                "higgsfield-soul" if refine_engine_choice.startswith("Higgs Field Soul") else
+                                "nb2"
+                            )
+
+                            cols_form = st.columns([1, 4])
+                            with cols_form[0]:
+                                n_vars = st.number_input(
+                                    "Variations",
+                                    min_value=1,
+                                    max_value=4,
+                                    value=1,
+                                    key=vn_key,
+                                )
+                            with cols_form[1]:
+                                engine_suffix_map = {
+                                    "hf-web": " (HF Web)",
+                                    "higgsfield-soul": " (HF Soul)",
+                                    "nb2": "",
+                                }
+                                engine_suffix = engine_suffix_map[refine_engine_id]
+                                cost_per = 0.10 if refine_engine_id != "hf-web" else 0.10
+                                refine_label = (
+                                    f"🔄 Refine from {base_options[base_choice][0]}"
+                                    f"{engine_suffix} "
+                                    f"({int(n_vars)} variation(s), ~${cost_per * int(n_vars):.2f})"
+                                )
+                                if st.button(
+                                    refine_label,
+                                    disabled=not feedback.strip(),
+                                    key=f"refine_btn_{run['timestamp']}_{bid}",
+                                    use_container_width=True,
+                                ):
+                                    args = [
+                                        "remix-refine",
+                                        "--remix-dir", str(run_dir),
+                                        "--brief", bid,
+                                        "--feedback", feedback.strip(),
+                                        "--num-images", str(int(n_vars)),
+                                        "--from-image", base_filename,
+                                    ]
+                                    if refine_engine_id != "nb2":
+                                        args += [
+                                            "--engine", refine_engine_id,
+                                            "--fallback-engine", "nb2",
+                                        ]
+                                    run_adc_command(
+                                        args,
+                                        label=(
+                                            f"Refining {bid[-6:]} from "
+                                            f"{base_options[base_choice][0]} — "
+                                            f"{int(n_vars)} variation(s) via "
+                                            f"{refine_engine_choice.split(' ')[0:2]}"
+                                        ),
+                                    )
+                                    st.rerun()
+            else:
+                st.info("No images generated yet for this run.")
+
+            # ── Engine selector ──────────────────────────────────────────
+            # Three engines now:
+            #   "HF Web nano_banana_flash" — recommended. Direct call to
+            #                                fnf.higgsfield.ai's edit endpoint.
+            #   "fal NB2"                  — fast single-shot via fal.ai's NB2.
+            #   "fal NB2 + HF Soul"        — single-shot NB2 with optional
+            #                                HF Soul stage-3 when --staged.
+            #
+            # The HF CLI option was removed 2026-05-22 — the npm `higgsfield`
+            # CLI hits platform.higgsfield.ai which routes to a different
+            # model variant and produced poor output on every test.
+            mappings_present = (run_dir / "mappings").exists()
+            engine_options = [
+                "HF Web nano_banana_flash (RECOMMENDED — best layout fidelity)",
+                "fal NB2 (fast, fal credits)",
+                "fal NB2 + HF Soul stage-3 (identity-locked)",
+            ]
+            engine_choice = st.radio(
+                "Engine",
+                engine_options,
+                index=0,
+                key=f"remix_engine_{run['timestamp']}",
+                help=(
+                    "Pick how images get generated:\n"
+                    "• **HF Web nano_banana_flash** (recommended) — the same "
+                    "edit backend cloud.higgsfield.ai uses internally. "
+                    "Verified to produce reference-faithful edits on complex "
+                    "layouts. Single-shot. Requires Clerk session cookies "
+                    "(HIGGSFIELD_JWT + HIGGSFIELD_CLERK_CLIENT) in .env — "
+                    "see docs/hf-web-engine.md. ~$0.10/brief in HF credits.\n"
+                    "• **fal NB2** — single-shot via fal.ai's edit endpoint. "
+                    "$0.08/brief. Requires fal credits.\n"
+                    "• **fal NB2 + HF Soul stage-3** — pair with the Staged "
+                    "checkbox. Stages 1+2 NB2 via fal, stage 3 identity-locked "
+                    "via HF Soul if persona has a trained soul."
+                ),
+            )
+            engine_choice_id = (
+                "hf-web" if engine_choice.startswith("HF Web") else
+                "higgsfield-soul" if engine_choice.startswith("fal NB2 + HF") else
+                "nb2"
+            )
+
+            # Staged toggle — only useful for differential runs.
+            staged_disabled = not mappings_present
+            staged_label = (
+                "Staged 3-pass (product → text → model)"
+                + ("" if mappings_present else "  ·  (requires differential mode)")
+            )
+            use_staged = st.checkbox(
+                staged_label,
+                key=f"remix_use_staged_{run['timestamp']}",
+                disabled=staged_disabled,
+                help=(
+                    "Off: single image-gen call applies all edits together. "
+                    "For HF Web, this is the only mode (single nano_banana_flash "
+                    "call). For fal NB2 + HF Soul, off means one NB2 call.\n\n"
+                    "On: 3 sequential passes — pass 1 product, pass 2 text, "
+                    "pass 3 model/character. Only useful for the fal NB2 + "
+                    "HF Soul pairing; HF Web ignores this toggle and runs "
+                    "single-shot."
+                ),
+            )
+
+            action_l, action_r = st.columns(2)
+            # Cost estimates per brief, by engine × staged.
+            if engine_choice_id == "hf-web":
+                # Single nano_banana_flash call (staged not applicable).
+                cost_per_brief = 0.10
+                engine_suffix = " (HF Web)"
+            elif engine_choice_id == "higgsfield-soul" and use_staged:
+                cost_per_brief = 0.24
+                engine_suffix = " (NB2 + HF Soul)"
+            elif use_staged:
+                cost_per_brief = 0.24
+                engine_suffix = ""
+            else:
+                cost_per_brief = 0.08
+                engine_suffix = ""
+            staged_suffix = " · 3-pass" if use_staged else ""
+            label_button = (
+                f"♻️ Re-fire {n_briefs} image(s){engine_suffix}{staged_suffix} (~${cost_per_brief * n_briefs:.2f})"
+                if images
+                else f"🖼️ Generate {n_briefs} image(s){engine_suffix}{staged_suffix} (~${cost_per_brief * n_briefs:.2f})"
+            )
+            with action_l:
+                if st.button(
+                    label_button,
+                    use_container_width=True,
+                    key=f"remix_genimg_{run['timestamp']}",
+                ):
+                    args = [
+                        "remix-images",
+                        "--remix-dir", str(run_dir),
+                        "--num-images", "1",
+                    ]
+                    if engine_choice_id == "hf-web":
+                        args += [
+                            "--engine", "hf-web",
+                            "--fallback-engine", "nb2",
+                        ]
+                    elif engine_choice_id == "higgsfield-soul":
+                        args += [
+                            "--engine", "higgsfield-soul",
+                            "--fallback-engine", "nb2",
+                        ]
+                    if use_staged:
+                        args += ["--staged"]
+                    run_adc_command(
+                        args,
+                        label=(
+                            f"Generating {n_briefs} image(s) for {run['timestamp']}"
+                            + (f" via {engine_suffix.strip(' ()')}" if engine_suffix else "")
+                            + (" — 3-pass staged" if use_staged else "")
+                        ),
+                    )
+                    st.rerun()
+            with action_r:
+                rel = run_dir.relative_to(REPO_ROOT)
+                st.caption(f"📂 `{rel}`")
+
+
 def _render_gaps_tab(selected):
     gap_yaml = CLIENTS_DIR / selected / "research" / "competitive-gaps.yaml"
     if not gap_yaml.exists():
@@ -1805,6 +3012,108 @@ def _render_psychology_tab(selected):
                             st.caption(f"💡 _What it means:_ {glossary}")
                         if p.get("avoid_because"):
                             st.caption(f"⚠️ _Why avoid:_ {p['avoid_because']}")
+
+
+def _render_templates_tab(selected):
+    """Browse Cooper-style templates extracted from the client's reference ads.
+
+    Each template's source image is shown alongside its metadata (id, name,
+    tags, category). Copy the template ID into the Actions → Image Generation
+    → Manual override picker to force generation against a specific template.
+    """
+    templates_root = CLIENTS_DIR / selected / "templates"
+    raw_root = CLIENTS_DIR / selected / "reference_ads" / "raw"
+
+    if not templates_root.exists():
+        st.info(
+            f"No templates extracted yet for `{selected}`. Run "
+            f"`adc extract-templates --client {selected}` first. "
+            "Requires reference ads in `clients/<slug>/reference_ads/raw/`."
+        )
+        return
+
+    # Load all usable templates (template_prompt > 50 chars)
+    all_templates: list[dict] = []
+    for tpl_yaml in sorted(templates_root.rglob("*.yaml")):
+        try:
+            d = yaml.safe_load(tpl_yaml.read_text(encoding="utf-8")) or {}
+            body = (d.get("template_prompt") or "").strip()
+            if not body or len(body) < 50:
+                continue
+            # Resolve source image
+            category = tpl_yaml.parent.name
+            stem = tpl_yaml.stem
+            source_image = None
+            for ext in (".png", ".jpg", ".jpeg", ".webp"):
+                candidate = raw_root / category / f"{stem}{ext}"
+                if candidate.exists():
+                    source_image = candidate
+                    break
+            all_templates.append({
+                "id": d.get("id", stem),
+                "name": d.get("name", "—"),
+                "category": d.get("category", category),
+                "tags": d.get("tags") or [],
+                "description": d.get("description", ""),
+                "source_image": source_image,
+                "yaml_path": tpl_yaml,
+                "template_prompt": body,
+            })
+        except Exception:
+            continue
+
+    if not all_templates:
+        st.info(
+            "Templates folder exists but no usable templates found. "
+            f"Re-run `adc extract-templates --client {selected} --force`."
+        )
+        return
+
+    # Header metrics + category filter
+    cats = sorted({t["category"] for t in all_templates})
+    by_cat: dict[str, int] = {}
+    for t in all_templates:
+        by_cat[t["category"]] = by_cat.get(t["category"], 0) + 1
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total templates", len(all_templates))
+    c2.metric("Categories", len(cats))
+    c3.metric("Largest category",
+              f"{max(by_cat, key=by_cat.get)} ({max(by_cat.values())})")
+
+    chosen_cat = st.selectbox(
+        "Category", ["(all)"] + cats, index=0, key="templates_filter_category",
+    )
+
+    filtered = (
+        all_templates if chosen_cat == "(all)"
+        else [t for t in all_templates if t["category"] == chosen_cat]
+    )
+
+    st.caption(
+        f"Showing {len(filtered)} template(s). "
+        "Click any thumbnail to enlarge. Copy the Template ID into "
+        "Actions → Image Generation → Manual override to use it."
+    )
+
+    # Grid: 3 columns, each card = thumbnail + metadata + "Copy ID" affordance
+    cols_per_row = 3
+    for i in range(0, len(filtered), cols_per_row):
+        row = st.columns(cols_per_row)
+        for j, t in enumerate(filtered[i:i + cols_per_row]):
+            with row[j]:
+                if t["source_image"] and t["source_image"].exists():
+                    st.image(str(t["source_image"]), use_container_width=True)
+                else:
+                    st.markdown("_(source image not found on disk)_")
+                st.markdown(f"**{t['name']}**")
+                st.caption(f"`{t['category']}`")
+                st.code(t["id"], language=None)
+                if t["tags"]:
+                    st.caption("Tags: " + ", ".join(t["tags"][:5]))
+                with st.expander("Template body", expanded=False):
+                    st.markdown(f"_{t['description']}_" if t["description"] else "")
+                    st.text(t["template_prompt"])
 
 
 def _render_costs_tab(selected):
@@ -2032,6 +3341,229 @@ def _render_actions_tab(selected):
             st.rerun()
         st.caption("Est: ~$0.50 (Sonnet 4.6)")
 
+    st.divider()
+
+    # ─── Image generation ─────────────────────────────────────────────────
+    st.markdown("#### Image generation")
+    briefs_dir = CLIENTS_DIR / selected / "briefs"
+    n_briefs = len(list(briefs_dir.glob("*.yaml"))) if briefs_dir.exists() else 0
+    if n_briefs == 0:
+        st.info("No briefs to generate from yet.")
+    else:
+        ic1, ic2 = st.columns([3, 1])
+        with ic1:
+            picks = st.text_input(
+                f"Brief picks (1-{n_briefs}, comma-separated)",
+                placeholder="e.g. 1,3,5",
+                key="generate_picks",
+                help="The `#N` in each brief's header (Briefs tab) corresponds to the pick number used here.",
+            )
+        with ic2:
+            num_images = st.number_input("Variations", min_value=1, max_value=4, value=1, key="generate_num_images")
+
+        include_alts = st.checkbox(
+            "Include visual-format alternates (3 variants per brief instead of 1)",
+            key="generate_include_alternates",
+            help="Generates the primary visual_format + each visual_format_alternatives "
+            "entry per brief. Same psychological mechanic, different production styles — "
+            "useful for A/B/C variance testing. Triples the image count and cost.",
+        )
+
+        # ── Reference mode toggle ────────────────────────────────────────
+        # Auto-pick is default. Manual picks a specific template for all picks.
+        # Build the template list from disk so the picker stays in sync with
+        # whatever templates have been extracted.
+        templates_dir = CLIENTS_DIR / selected / "templates"
+        all_templates: list[dict] = []
+        if templates_dir.exists():
+            for tpl_yaml in sorted(templates_dir.rglob("*.yaml")):
+                try:
+                    td = yaml.safe_load(tpl_yaml.read_text(encoding="utf-8")) or {}
+                    body = (td.get("template_prompt") or "").strip()
+                    if not body or len(body) < 50:
+                        continue
+                    all_templates.append({
+                        "id": td.get("id", tpl_yaml.stem),
+                        "name": td.get("name", "—"),
+                        "category": td.get("category", "—"),
+                        "tags": td.get("tags") or [],
+                    })
+                except Exception:
+                    continue
+
+        reference_mode = st.radio(
+            "Reference mode",
+            ["Auto-pick (system picks the best template per brief)",
+             "Manual override (use ONE specific template for ALL picks in this run)"],
+            index=0,
+            key="generate_reference_mode",
+            horizontal=False,
+        )
+
+        chosen_template_id = None
+        if reference_mode.startswith("Manual") and all_templates:
+            cats = sorted({t["category"] for t in all_templates})
+            mc1, mc2 = st.columns([1, 3])
+            with mc1:
+                chosen_cat = st.selectbox(
+                    "Category filter", ["(all)"] + cats, key="generate_ref_category",
+                )
+            filtered = (
+                all_templates if chosen_cat == "(all)"
+                else [t for t in all_templates if t["category"] == chosen_cat]
+            )
+            with mc2:
+                if filtered:
+                    label_for = lambda t: f"[{t['category']}] {t['id']} — {t['name']}"
+                    chosen_label = st.selectbox(
+                        "Template",
+                        [label_for(t) for t in filtered],
+                        key="generate_ref_template",
+                    )
+                    chosen_template_id = next(
+                        (t["id"] for t in filtered if label_for(t) == chosen_label),
+                        None,
+                    )
+                else:
+                    st.caption("No templates in this category.")
+            if chosen_template_id:
+                st.caption(f"Will pass `--reference {chosen_template_id}` to generate.")
+        elif reference_mode.startswith("Manual") and not all_templates:
+            st.warning(
+                "No client templates extracted yet. Run "
+                f"`adc extract-templates --client {selected}` first."
+            )
+
+        gen_cd = st.text_area(
+            "Creative direction (optional)",
+            key="generate_creative_direction",
+            placeholder=(
+                "e.g. 'two callouts in primary brand color + accent, text bubble at top, "
+                "hand from bottom holding product, no FDA disclaimer'"
+            ),
+            height=70,
+            help=(
+                "Pre-generation directive applied to EVERY picked brief. Locks in "
+                "structural elements (text bubble, callouts) and styling cues (brand colors "
+                "for pills). Highest-priority constraint — overrides defaults from "
+                "the brief / template / library skills when in conflict."
+            ),
+        )
+
+        gen_offer = st.text_input(
+            "Offer code (slot 9 of the naming taxonomy)",
+            value="NONE",
+            key="generate_offer",
+            placeholder="e.g. FREESHIP, BFCM25, 20OFF",
+            help=(
+                "Promo code that appears in the campaign name (slot 9). "
+                "Alphanumeric only, capped at 12 chars. Use 'NONE' for ads without an offer."
+            ),
+        )
+
+        # ── Engine selector (3-way radio) ──────────────────────────────
+        # Three engines available for adc generate:
+        #   - nb2 (fal NB2): fast, multi-image, optional --reference for
+        #     loose template-as-style-guide. Default.
+        #   - hf-web (Higgsfield nano_banana_flash): reference-faithful
+        #     edit. REQUIRES a manual --reference template. Best for
+        #     complex layouts (us-vs-them, multi-callout panels).
+        #   - higgsfield-soul (HF soul_2 + Soul Character): identity-
+        #     locked face, ignores --reference. Falls back to NB2 if HF
+        #     credits are empty.
+        gen_engine_label = st.radio(
+            "Image-generation engine",
+            options=[
+                "fal NB2 (default, fast, optional reference)",
+                "HF Web nano_banana_flash (reference-faithful edit) — needs manual reference",
+                "HF Soul (identity-locked, ignores reference)",
+            ],
+            key="generate_engine_radio",
+            index=0,
+            help=(
+                "fal NB2: standard NB2 from-scratch generation with your "
+                "product image. Optional --reference template loosely "
+                "guides composition.\n\n"
+                "HF Web nano_banana_flash: reference-EDIT path that clones "
+                "the reference's layout exactly and swaps in the brief's "
+                "content. Best on complex layouts where NB2 drifts. "
+                "REQUIRES Manual reference (not auto-pick). Uses HF plan "
+                "credits, not fal credits.\n\n"
+                "HF Soul: per-persona Soul Character + PIL text overlay. "
+                "Reference templates are ignored. Requires HF_CREDENTIALS "
+                "+ ready Souls on persona YAMLs. Falls back to NB2 if "
+                "credits are empty."
+            ),
+        )
+
+        use_hf_gen = gen_engine_label.startswith("HF Soul")
+        use_hf_web_gen = gen_engine_label.startswith("HF Web")
+
+        if use_hf_web_gen and not (
+            reference_mode.startswith("Manual") and chosen_template_id
+        ):
+            st.warning(
+                "HF Web engine requires Manual reference mode + a chosen "
+                "template. Pick 'Manual' above and select a template, "
+                "or switch to fal NB2 / HF Soul."
+            )
+
+        engine_suffix = (
+            " (HF Soul)" if use_hf_gen
+            else " (HF Web)" if use_hf_web_gen
+            else ""
+        )
+        if st.button(f"🖼️ Generate images for picks{engine_suffix}",
+                     use_container_width=True, type="primary",
+                     disabled=not picks.strip()):
+            args = ["generate", "--client", selected, "--pick", picks.strip(),
+                    "--num-images", str(int(num_images)),
+                    "--offer", gen_offer.strip() or "NONE"]
+            if include_alts:
+                args.append("--include-alternates")
+            # Reference is passed for NB2 + hf-web (both consume templates);
+            # ignored for HF Soul.
+            if (reference_mode.startswith("Manual") and chosen_template_id
+                    and not use_hf_gen):
+                args.extend(["--reference", chosen_template_id])
+            if gen_cd.strip():
+                args.extend(["--creative-direction", gen_cd.strip()])
+            if use_hf_gen:
+                args.extend([
+                    "--engine", "higgsfield-soul",
+                    "--fallback-engine", "nb2",
+                ])
+            elif use_hf_web_gen:
+                args.extend(["--engine", "hf-web"])
+            n_picks = len([p for p in picks.split(",") if p.strip()])
+            variants_per_brief = 3 if include_alts else 1
+            total_imgs = n_picks * int(num_images) * variants_per_brief
+            # Cost estimate varies by engine. HF Web's nano_banana_flash is
+            # billed against HF plan credits (~$0.10/brief equivalent).
+            per_img = (
+                0.10 if use_hf_web_gen
+                else 0.08
+            )
+            engine_note = (
+                " via Higgs Field Soul" if use_hf_gen
+                else " via HF Web nano_banana_flash" if use_hf_web_gen
+                else ""
+            )
+            run_adc_command(
+                args,
+                label=(
+                    f"Generating {total_imgs} image(s) "
+                    f"(~${total_imgs * per_img:.2f}){engine_note}"
+                ),
+            )
+            st.rerun()
+        st.caption(
+            "Est: ~$0.08/image (fal NB2) or ~$0.10/image (HF Web). "
+            "HF Soul uses Higgs Field Ultra credits instead. "
+            "Auto-pick picks 1 reference per brief (ignored in HF Soul mode); "
+            "Manual override applies one template to all picks. "
+            "HF Web REQUIRES Manual reference."
+        )
 
 
 # ───────────────────────────────────────────────────────────────────────────

@@ -1,0 +1,72 @@
+{
+  "blocks": [
+    {
+      "text": "Billions of CFUs from Probiotics.",
+      "font": "news",
+      "size": 0.036,
+      "color": "#3A2E22",
+      "x": 0.06,
+      "y": 0.014
+    },
+    {
+      "text": "Researchers have found a way to bypass stomach acid entirely.",
+      "font": "serif_reg",
+      "size": 0.02,
+      "color": "#5A4A38",
+      "x": 0.06,
+      "y": 0.058
+    },
+    {
+      "text": "the long way",
+      "font": "condensed",
+      "size": 0.026,
+      "color": "#B5432F",
+      "x": 0.055,
+      "y": 0.375
+    },
+    {
+      "text": "up to 70% of live bacteria",
+      "font": "serif_reg",
+      "size": 0.018,
+      "color": "#5C4A38",
+      "x": 0.055,
+      "y": 0.408
+    },
+    {
+      "text": "die in stomach acid",
+      "font": "serif_reg",
+      "size": 0.018,
+      "color": "#5C4A38",
+      "x": 0.055,
+      "y": 0.431
+    },
+    {
+      "text": "the direct way",
+      "font": "condensed",
+      "size": 0.026,
+      "color": "#7A5C1E",
+      "x": 0.74,
+      "y": 0.375
+    },
+    {
+      "text": "postbiotic compounds,",
+      "font": "serif_reg",
+      "size": 0.018,
+      "color": "#5C4A38",
+      "x": 0.74,
+      "y": 0.408
+    },
+    {
+      "text": "already active",
+      "font": "serif_reg",
+      "size": 0.018,
+      "color": "#5C4A38",
+      "x": 0.74,
+      "y": 0.431
+    }
+  ],
+  "out_size": [
+    1080,
+    1350
+  ]
+}

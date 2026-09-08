@@ -15,6 +15,7 @@ import yaml
 from models.avatar import CustomerAvatar, Desire, PainPoint
 from models.skills import load_skill
 from strategy.llm import claude_complete
+from strategy.llm_yaml import strip_fences, try_repair_yaml
 
 VOC_SYSTEM = """You are a voice-of-customer research analyst specializing in direct response advertising.
 
@@ -147,27 +148,52 @@ jobs-to-be-done, 5-10 money quotes. Use ONLY language that actually
 appears in the reviews. Do not invent quotes."""
 
 
+class VocExtractionError(RuntimeError):
+    """The extraction LLM returned unusable YAML after mining + repair passes."""
+
+
 def extract_voc_from_text(
     reviews_text: str,
     product_category: str,
     source: str = "reviews",
 ) -> dict:
-    """Extract VOC insights from raw review text."""
+    """Extract VOC insights from raw review text.
+
+    The extraction model occasionally emits near-valid YAML — a misindented
+    commentary key, an unquoted parenthetical after a quoted scalar (both
+    observed live 2026-07-06). Recovery ladder: parse → repair pass → full
+    re-mine → repair → raise VocExtractionError. Temperature is SDK-default,
+    so re-asking genuinely re-rolls rather than reproducing the same output.
+    """
     prompt = VOC_EXTRACTION_PROMPT.format(
         product_category=product_category,
         reviews=reviews_text[:15000],  # Token budget guard
         source=source,
     )
-    # 8192 ceiling — earlier 4096 truncated rich corpora (e.g. 100+ IG comments)
-    # mid-quoted-string, producing unparseable YAML. The full schema averages
-    # ~4-6K tokens; 8K gives headroom for the largest source dumps.
-    result = claude_complete(prompt, system=VOC_SYSTEM, max_tokens=8192)
-    result = result.strip()
-    if result.startswith("```"):
-        result = result.split("\n", 1)[1]
-    if result.endswith("```"):
-        result = result.rsplit("```", 1)[0]
-    return yaml.safe_load(result)
+    last_error: object = None
+    for _ in range(2):  # mining attempts; each failed parse gets one repair pass
+        # 8192 ceiling — earlier 4096 truncated rich corpora (e.g. 100+ IG
+        # comments) mid-quoted-string, producing unparseable YAML. The full
+        # schema averages ~4-6K tokens; 8K gives headroom for the largest
+        # source dumps.
+        result = strip_fences(
+            claude_complete(prompt, system=VOC_SYSTEM, max_tokens=8192)
+        )
+        try:
+            parsed = yaml.safe_load(result)
+        except yaml.YAMLError as err:
+            last_error = err
+            repaired = try_repair_yaml(result, err, claude_complete)
+            if repaired is not None:
+                return repaired
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+        last_error = f"model returned {type(parsed).__name__}, expected a mapping"
+    raise VocExtractionError(
+        f"VOC extraction for source '{source}' produced unparseable YAML after "
+        f"2 mining attempts with repair passes. Last error: {last_error}"
+    )
 
 
 def load_reviews_from_file(path: Path) -> str:
@@ -202,20 +228,37 @@ def mine_voc_for_client(
         )
 
     all_insights: list[dict] = []
+    failures: list[dict] = []
     for review_file in sorted(voc_dir.glob("*")):
         if review_file.suffix in (".json", ".txt") and not review_file.name.startswith("extracted"):
             reviews_text = load_reviews_from_file(review_file)
             source = review_file.stem
-            insights = extract_voc_from_text(reviews_text, product_category, source)
+            try:
+                insights = extract_voc_from_text(reviews_text, product_category, source)
+            except VocExtractionError as err:
+                # One poisoned source must not lose the whole run (or the
+                # spend already sunk into the sources that extracted fine).
+                failures.append({"source": review_file.name, "reason": str(err)})
+                continue
             all_insights.append(insights)
 
     if not all_insights:
+        if failures:
+            raise VocExtractionError(
+                "every VOC source failed extraction: "
+                + "; ".join(f"{f['source']}: {f['reason']}" for f in failures)
+            )
         raise FileNotFoundError(
             f"No review files found in {voc_dir}. "
             "Add .json or .txt files with customer reviews."
         )
 
-    return _merge_insights(all_insights)
+    merged = _merge_insights(all_insights)
+    if failures:
+        # Lands in extracted_pains.yaml via the CLI write — a partially
+        # failed run must say so in the artifact, not read as complete.
+        merged["extraction_failures"] = failures
+    return merged
 
 
 def _merge_insights(insights_list: list[dict]) -> dict:

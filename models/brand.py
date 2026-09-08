@@ -1,6 +1,22 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+def _as_str_list(v):
+    """LLM extractions sometimes return a prose string where the schema wants
+    list[str]. Wrap instead of failing — a one-item list is lossless, and a
+    type error here bricks every downstream load_brand() call."""
+    if isinstance(v, str):
+        return [v.strip()] if v.strip() else []
+    return v
+
+
+def _as_joined_str(v):
+    """Inverse wobble: a list where the schema wants a string."""
+    if isinstance(v, list):
+        return ", ".join(str(item).strip() for item in v if str(item).strip())
+    return v
 
 
 class UgcVoice(BaseModel):
@@ -188,6 +204,14 @@ class VisualIdentity(BaseModel):
     notable_visual_signatures: list[str] = Field(default_factory=list, description="specific visual elements that define this brand")
     color_mood: str = Field(default="", description="palette feel WITHOUT hex codes — warm, vibrant, muted, monochromatic, etc.")
 
+    _coerce_lists = field_validator(
+        "visual_references", "mood", "notable_visual_signatures", mode="before"
+    )(_as_str_list)
+    _coerce_strs = field_validator(
+        "aesthetic", "photography_style", "design_language", "typography_feel",
+        "mascot_or_character", "color_mood", mode="before"
+    )(_as_joined_str)
+
 
 class AudienceProfile(BaseModel):
     age_range: str = Field(description="Target age range, e.g. '25-45'")
@@ -200,13 +224,15 @@ class AudienceProfile(BaseModel):
     )
     locations: list[str] = Field(default_factory=list, description="Target geographic locations")
 
+    _coerce_lists = field_validator("interests", "locations", mode="before")(_as_str_list)
+
 
 class Brand(BaseModel):
     name: str = Field(description="Brand/company name")
     code: str = Field(
         default="",
         description="Short alphanumeric brand code used as Slot 1 of the Meta "
-        "ad naming taxonomy (e.g. 'SK' for SecondKind). "
+        "ad naming taxonomy (e.g. 'SK' for SecondKind, 'OP' for Olipop). "
         "2-6 chars, no spaces or punctuation. Required when generating campaign "
         "names — `strategy/naming.py:build_campaign_name` raises if empty.",
     )
