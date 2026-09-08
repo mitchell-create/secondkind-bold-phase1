@@ -4538,28 +4538,91 @@ def analyze_gaps(client: str, synthesis_only: bool):
     default=False,
     help="Re-run queries even if cached. Default: skip cached (free re-runs).",
 )
+@click.option(
+    "--regenerate-plan",
+    is_flag=True,
+    default=False,
+    help="Discard clients/<slug>/research/exa/query-plan.yaml and plan the "
+    "queries again from the current brand context (~$0.10).",
+)
+@click.option(
+    "--generic",
+    is_flag=True,
+    default=False,
+    help="Skip business-specific planning and use the category-neutral "
+    "starter queries.",
+)
 def research_web(client: str, competitors: str | None, category: str | None,
-                 force_refresh: bool):
-    """Run Exa web research for a client — Reddit + comparison + reviews + category."""
+                 force_refresh: bool, regenerate_plan: bool, generic: bool):
+    """Run Exa web research for a client — Reddit + comparison + reviews + category.
+
+    Queries are planned per business: one Claude pass reads brand context,
+    products, audience and competitors, decides what this market actually
+    argues about, and caches the plan at research/exa/query-plan.yaml. Edit
+    that file (set provenance: manual) to steer the run; --regenerate-plan
+    rebuilds it; --generic skips planning. Competitors default to
+    competitors.yaml when --competitors is omitted. Reddit-scoped hits are
+    mirrored into voc/reddit-threads.json so `adc mine-voc` sees them.
+    """
     from models.loader import load_brand
-    from strategy.exa_research import run_research_bundle
+    from strategy.cost_tracker import log_cost
+    from strategy.exa_queries import default_queries_for_brand
+    from strategy.exa_query_plan import (
+        QueryPlanError,
+        generate_query_plan,
+        load_query_plan,
+        queries_from_plan,
+        query_plan_path,
+    )
+    from strategy.exa_research import run_research_bundle, write_reddit_voc_dump
 
     brand = load_brand(client)
-    comp_list = [c.strip() for c in competitors.split(",")] if competitors else None
-    cat_list = [c.strip() for c in category.split(",")] if category else None
+    if competitors:
+        comp_list = [c.strip() for c in competitors.split(",") if c.strip()]
+    else:
+        comp_list = _competitor_names_from_yaml(client)
+    cat_list = [c.strip() for c in category.split(",") if c.strip()] if category else None
 
     console.print(f"[cyan]Running Exa research for {brand.name}...[/cyan]")
     if comp_list:
         console.print(f"  Competitors: {', '.join(comp_list)}")
     if cat_list:
-        console.print(f"  Category terms: {', '.join(cat_list)}")
+        console.print(f"  Category terms (operator): {', '.join(cat_list)}")
+
+    plan = None
+    if not generic:
+        plan = None if regenerate_plan else load_query_plan(client)
+        if plan is None:
+            console.print("  [cyan]Planning business-specific queries (~$0.10)...[/cyan]")
+            try:
+                plan = generate_query_plan(client)
+                log_cost(client, "adc query-plan")
+            except QueryPlanError as e:
+                console.print(
+                    f"  [yellow]Query plan unusable ({e}); "
+                    "falling back to generic starter queries.[/yellow]"
+                )
+    if plan is not None:
+        console.print(f"  Business: {plan.business_type}")
+        console.print(
+            f"  Footprint: {plan.brand_footprint} | plan: "
+            f"{query_plan_path(client)} ({plan.provenance})"
+        )
+        if plan.rationale:
+            console.print(f"  [dim]{plan.rationale}[/dim]")
+        queries = queries_from_plan(
+            plan, brand.name, comp_list, extra_category_terms=cat_list,
+        )
+    else:
+        queries = default_queries_for_brand(brand.name, comp_list or None, cat_list)
 
     results = run_research_bundle(
         client_slug=client,
         brand_name=brand.name,
-        competitors=comp_list,
+        competitors=comp_list or None,
         category_terms=cat_list,
         skip_cached=not force_refresh,
+        queries=queries,
     )
 
     table = Table(title=f"Exa Research - {brand.name}")
@@ -4569,8 +4632,13 @@ def research_web(client: str, competitors: str | None, category: str | None,
     table.add_column("Hits", style="green", justify="right")
     table.add_column("Top domain", style="dim")
 
+    failures = 0
     for i, r in enumerate(results, 1):
-        top_domain = r.results[0].domain if r.results else "-"
+        if r.error:
+            failures += 1
+            top_domain = "[red]error[/red]"
+        else:
+            top_domain = r.results[0].domain if r.results else "-"
         table.add_row(
             str(i),
             r.query.label,
@@ -4582,10 +4650,28 @@ def research_web(client: str, competitors: str | None, category: str | None,
     console.print(table)
     out_dir = Path("clients") / client / "research" / "exa" / "raw"
     console.print(f"\n[green]Cached to: {out_dir}/[/green]")
+    if failures:
+        console.print(
+            f"[yellow]{failures} query(ies) failed — records under "
+            f"{out_dir.parent / 'errors'}/[/yellow]"
+        )
+    voc_path, voc_n = write_reddit_voc_dump(client, results)
+    if voc_path:
+        console.print(f"[green]Reddit threads mirrored for mine-voc: {voc_path} ({voc_n})[/green]")
     console.print(
         f"[dim]Total queries: {len(results)} | "
         f"Re-run free (cached) | --force-refresh to override[/dim]"
     )
+    log_cost(client, "adc research-web")
+
+
+def _competitor_names_from_yaml(client: str) -> list[str]:
+    """Competitor names from clients/<slug>/competitors.yaml, or [] if absent."""
+    if not (Path("clients") / client / "competitors.yaml").exists():
+        return []
+    from strategy.competitor_research import load_competitors
+
+    return [c.name for c in load_competitors(client)]
 
 
 @cli.command()
